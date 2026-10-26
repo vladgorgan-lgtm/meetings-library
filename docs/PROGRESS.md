@@ -23,6 +23,7 @@ release process.
 | Oct 21 | First complete kit: viewer, data build, cost model, budget gate, demo bundler. | 1.0.0 |
 | Oct 23 | Decisions layer scaffolded: rules and settings files, documentation. Viewer polished. | 1.1.0 |
 | Oct 26 | Second source added (Gemini notes, merged per meeting). Local settings page and server, "Run fetch now", needs-review workflow, backups before each risky change. Repository created with a fictional demo. | 1.2.0 |
+| Oct 26 (evening) | Publishing made safe and repeatable: one command, a leak scan over exactly the files that may leave the computer, and the library folder aligned with the repository. | 1.2.1 |
 
 ## How this file is kept
 

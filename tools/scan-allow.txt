@@ -1,0 +1,9 @@
+# Phrases the leak scan ignores because they are harmless examples, one per line.
+# Exact, case-sensitive text. Keep this list short; every line is a hole in the net.
+gemini-notes@google.com
+{"Jon Smit": "John Smith"}
+"Jon Smit" -> "John Smith"
+Jon, John and Jonn are the same person: John Smith.
+(two Alexes)
+"Jon Smit"
+"John Smith"

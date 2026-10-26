@@ -1,0 +1,5 @@
+# Ordinary English words that occur inside private names or garbled company names.
+# They are not checked as single words (the full names still are). Keep this short.
+next
+tech
+white

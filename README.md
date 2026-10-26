@@ -66,7 +66,7 @@ python3 engine/build_index.py --library sample
 | Key | Meaning |
 |---|---|
 | `owner` | Your name. Dropped from participant lists; action owner for `me_aliases` |
-| `me_aliases` | How you appear as an action owner in notes, e.g. `["Alex"]` |
+| `me_aliases` | How you appear as an action owner in notes, e.g. `["Jordan"]` |
 | `aliases` | Misspelling → canonical name, e.g. `{"Jon Smit": "John Smith"}` |
 | `title` | Page title |
 | `cadence`, `plan`, `auto_tag_sensitive` | Read by the sync skill |

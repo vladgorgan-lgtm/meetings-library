@@ -19,6 +19,21 @@ logs, not from commits, so versions 1.0.0 and 1.1.0 have no tag of their own.
 - Engine-side wiring for Gemini notes beyond the sync runbook, and a cost estimate for it.
 - Contributor guide and a tagged release process.
 
+## [1.2.1] - 2026-10-26
+
+### Added
+- `tools/publishable.py`: lists the files that may be published (everything `.gitignore`
+  does not exclude) and scans exactly those files for real names, e-mail addresses and
+  local paths before any push. `tools/scan-allow.txt` holds harmless example phrases.
+- `docs/publishing.md`: what "push to git" does, the rules it follows, and the checklist
+  for a new session.
+
+### Changed
+- The library folder on disk now matches the repository (same `.gitignore`, `sample/`,
+  `templates/`, docs and tools), so publishing is a copy of the allowed files, not a rewrite.
+- Private name checks moved from `engine/review.py` into the library's own
+  `ops/curated-checks.json`; the UI placeholder text uses an invented name.
+
 ## [1.2.0] - 2026-10-26
 
 ### Added
