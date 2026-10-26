@@ -3,6 +3,7 @@
 
   python3 tools/publishable.py list [--library PATH]   files git would publish
   python3 tools/publishable.py scan [--library PATH]   same files, checked for real names
+  python3 tools/publishable.py approve [--library PATH]  record the guarded files (owner only)
 
 "Publishable" means: not excluded by the library's .gitignore. The scan collects real
 names from the PRIVATE data (note frontmatter, config.json, rules/resolutions.json,
@@ -14,6 +15,11 @@ tools/scan-allow.txt lists phrases that are known false positives, one per line.
 tools/scan-ignore-terms.txt lists ordinary words that appear inside private names
 (for example "Next" inside a company name) and must not be checked on their own;
 the full names are still checked.
+The privacy rules are locked. scan refuses to run if .gitignore no longer contains every
+line in REQUIRED_IGNORES, or if a guarded file (.gitignore, this script, the two lists in
+tools/) differs from tools/guard.sha256. Changing a guarded file is a decision for the
+library owner: show the change, get an explicit yes, then run `approve`.
+
 Python standard library plus git. Run it before every push.
 """
 import json
@@ -23,8 +29,20 @@ import subprocess
 import sys
 import tempfile
 
+import hashlib
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_ROOT = os.path.dirname(HERE)
+
+# Private data must stay ignored. Removing any of these lines from .gitignore fails the scan.
+REQUIRED_IGNORES = [
+    "/notes/", "/data/", "/inbox/", "/sources/", "/ops/", "/demo.html",
+    "/config.json", "/SYNC-EXTENSION.md",
+    "/rules/resolutions.json", "/rules/resolutions.md", "/rules/overrides.json",
+    "__pycache__/", ".env", "*.token", "routine.json",
+]
+GUARDED = [".gitignore", "tools/publishable.py", "tools/scan-allow.txt", "tools/scan-ignore-terms.txt"]
+GUARD_FILE = "tools/guard.sha256"
 
 
 def library_root(argv):
@@ -107,6 +125,51 @@ def allowed_phrases():
     return _lines("scan-allow.txt")
 
 
+def _sha(path):
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def guard_problems(root):
+    """Rules that must not change silently: required ignore lines, and the hashes of the
+    guarded files as the owner last approved them."""
+    problems = []
+    gi = os.path.join(root, ".gitignore")
+    lines = set()
+    if os.path.exists(gi):
+        with open(gi, encoding="utf-8") as fh:
+            lines = {l.strip() for l in fh}
+    for req in REQUIRED_IGNORES:
+        if req not in lines:
+            problems.append((".gitignore", f"required private-data rule missing: {req}"))
+    gf = os.path.join(root, GUARD_FILE)
+    if not os.path.exists(gf):
+        problems.append((GUARD_FILE, "no approved record of the guarded files; owner must run approve"))
+        return problems
+    approved = {}
+    with open(gf, encoding="utf-8") as fh:
+        for l in fh:
+            if l.strip() and not l.startswith("#"):
+                h, _, rel = l.strip().partition("  ")
+                approved[rel] = h
+    for rel in GUARDED:
+        p = os.path.join(root, rel)
+        if not os.path.exists(p):
+            problems.append((rel, "guarded file is missing"))
+        elif approved.get(rel) != _sha(p):
+            problems.append((rel, "guarded file changed since the owner approved it"))
+    return problems
+
+
+def approve(root):
+    with open(os.path.join(root, GUARD_FILE), "w", encoding="utf-8") as fh:
+        fh.write("# sha256 of the guarded privacy files, as approved by the library owner.\n")
+        fh.write("# Written by `publishable.py approve`. Do not edit by hand.\n")
+        for rel in GUARDED:
+            fh.write(f"{_sha(os.path.join(root, rel))}  {rel}\n")
+    print("Recorded", ", ".join(GUARDED))
+
+
 def scan(root):
     terms = private_terms(root)
     allow = allowed_phrases()
@@ -115,7 +178,7 @@ def scan(root):
     extra = [("e-mail address", re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")),
              ("local user path", re.compile(r"/Users/[A-Za-z0-9._-]+"))]
     files = publishable(root)
-    problems = []
+    problems = list(guard_problems(root))
     for rel in files:
         full = os.path.join(root, rel)
         text = ""
@@ -152,8 +215,13 @@ def main():
             for rel, why in problems:
                 print(f"  {rel}: {why}")
             print("Fix the file, or add a harmless phrase to tools/scan-allow.txt. Do not push.")
+            if any(r in GUARDED or r == GUARD_FILE for r, _ in problems):
+                print("Guarded privacy rules are involved: show the change to the library owner and "
+                      "get an explicit yes before running approve (docs/publishing.md).")
             sys.exit(2)
         print(f"OK: {len(files)} publishable files checked against {len(terms)} private names.")
+    elif cmd == "approve":
+        approve(root)
     else:
         print(__doc__)
         sys.exit(1)

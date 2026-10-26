@@ -4,7 +4,8 @@
 > demo in `sample/`. Your own notes, config and generated data are listed in
 > `.gitignore` and never committed. Try it: `python3 engine/build_index.py --library sample`.
 > History: [CHANGELOG.md](CHANGELOG.md) and [docs/PROGRESS.md](docs/PROGRESS.md).
-> Templates for your own library: `templates/`.
+> Templates for your own library: `templates/`. Rules for working here: [CLAUDE.md](CLAUDE.md);
+> how publishing works: [docs/publishing.md](docs/publishing.md).
 
 A durable local archive of Granola enhanced notes, with a browsable dashboard.
 Granola's free plan keeps **30 days of history**; this folder is the copy that

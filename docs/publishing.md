@@ -23,6 +23,19 @@ Say "push to git" in a session where the library folder is attached. Claude then
 `docs/PROGRESS.md` (executive timeline) from what changed in the session, then you can
 push.
 
+## Locked privacy rules
+
+These four files are guarded: `.gitignore`, `tools/publishable.py`, `tools/scan-allow.txt`,
+`tools/scan-ignore-terms.txt`. Their hashes are recorded in `tools/guard.sha256`, and the
+scan also checks that `.gitignore` still contains every required private-data rule. If a
+guarded file changes, or a required rule disappears, the scan fails and nothing is pushed.
+
+To change one on purpose: Claude shows you the exact change and why, you answer yes in the
+chat, then `python3 -B tools/publishable.py approve` records the new state. Without that
+yes, the change is reverted, not approved. This is a speed bump against accidents and
+quiet drift, not a vault: the real control is that every change is visible and needs your
+yes. For a hard lock on GitHub, turn on branch protection for `main` in the repo settings.
+
 ## Rules that do not bend
 
 - The scan must pass before any commit. A failed scan is never overridden to "get it out".

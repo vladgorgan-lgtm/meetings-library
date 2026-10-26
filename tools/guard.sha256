@@ -1,0 +1,6 @@
+# sha256 of the guarded privacy files, as approved by the library owner.
+# Written by `publishable.py approve`. Do not edit by hand.
+43641a0b0ba9e6825762e8434161df6ca7d5ab90e8022ecdf092292bb7d7dddc  .gitignore
+95fb11a2c81a026d4eca422f91eb2d5fc49bbc07a624ac37eebdcc34ef0d8838  tools/publishable.py
+e83ba724e639647f7c681e4982175981a9ab6d38a4c7708396d4b8e96e909c79  tools/scan-allow.txt
+b2dec967160a3c24a41538f117121d21ca9bb1a9f1a55096486384760269f5c4  tools/scan-ignore-terms.txt

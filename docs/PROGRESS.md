@@ -24,6 +24,7 @@ release process.
 | Oct 23 | Decisions layer scaffolded: rules and settings files, documentation. Viewer polished. | 1.1.0 |
 | Oct 26 | Second source added (Gemini notes, merged per meeting). Local settings page and server, "Run fetch now", needs-review workflow, backups before each risky change. Repository created with a fictional demo. | 1.2.0 |
 | Oct 26 (evening) | Publishing made safe and repeatable: one command, a leak scan over exactly the files that may leave the computer, and the library folder aligned with the repository. | 1.2.1 |
+| Oct 26 (night) | Privacy rules locked: the publish check refuses to run if the ignore rules or the check itself were changed without the owner's approval. Rules written into the folder for any session. | 1.2.2 |
 
 ## How this file is kept
 

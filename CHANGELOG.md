@@ -19,6 +19,15 @@ logs, not from commits, so versions 1.0.0 and 1.1.0 have no tag of their own.
 - Engine-side wiring for Gemini notes beyond the sync runbook, and a cost estimate for it.
 - Contributor guide and a tagged release process.
 
+## [1.2.2] - 2026-10-26
+
+### Added
+- Locked privacy rules: the scan now fails if `.gitignore` loses a required private-data
+  rule, or if a guarded file (`.gitignore`, the scan tool and its two lists) changed since
+  the owner approved it (`tools/guard.sha256`, `publishable.py approve`).
+- `CLAUDE.md`: the privacy, publishing and style rules in the folder itself, so they travel
+  with the project.
+
 ## [1.2.1] - 2026-10-26
 
 ### Added
