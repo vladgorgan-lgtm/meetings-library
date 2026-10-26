@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------------------
+# PRIVATE LIBRARY DATA. Never commit. This repo holds code, docs and a fictional
+# demo only. Anything that came from a real meeting stays on the local disk.
+# ---------------------------------------------------------------------------
+
+# the archive and everything generated from it
+/notes/
+/data/
+/inbox/
+/sources/
+/ops/
+/demo.html
+
+# personal settings, answers and rules built from real notes
+/config.json
+/SYNC-EXTENSION.md
+/rules/resolutions.json
+/rules/resolutions.md
+/rules/overrides.json
+
+# generated from the fictional sample library (rebuild with build_index.py)
+/sample/data/
+
+# backups, caches, editor and OS files
+*.bak
+*.bak[0-9]
+*.tmp
+__pycache__/
+*.pyc
+.DS_Store
+.env
+*.token
+routine.json

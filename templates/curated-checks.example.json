@@ -1,0 +1,17 @@
+[
+  {
+    "kind": "names",
+    "title": "Example: two spellings of one person",
+    "variants": [
+      "Jon Smit",
+      "John Smith"
+    ],
+    "suggest": {
+      "Jon Smit": "John Smith"
+    },
+    "notes": [
+      "2026-01-01-example-note"
+    ],
+    "detail": "Copy this file to <library>/ops/curated-checks.json and replace the example with checks from your own notes. Entries whose notes do not exist are skipped."
+  }
+]

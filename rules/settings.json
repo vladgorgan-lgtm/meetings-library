@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "max_added_per_meeting": 3,
+  "min_importance": 2,
+  "dedupe_overlap": 0.5,
+  "_note": "importance: 1 minor, 2 notable, 3 key. Only 'min_importance' and above are shown. Granola's own decisions are never trimmed."
+}

@@ -1,0 +1,31 @@
+{
+  "demo": true,
+  "owner": "Jordan Morgan",
+  "title": "Meeting Library (demo)",
+  "me_aliases": [
+    "Jordan"
+  ],
+  "aliases": {
+    "Mateo Bellini": "Matteo Bellini"
+  },
+  "cadence": "weekdays",
+  "plan": "free",
+  "archive_transcripts": false,
+  "auto_tag_sensitive": true,
+  "granola": {
+    "enabled": true
+  },
+  "gemini": {
+    "enabled": true,
+    "sender": "gemini-notes@google.com",
+    "lookback_days": 2,
+    "backfill_from": "2026-10-01",
+    "drive_safety_net": true,
+    "skip_shortcuts": true,
+    "max_doc_kb": 200
+  },
+  "local_files": {
+    "enabled": true,
+    "max_mb": 5
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "_comment": "Cost model for estimating sync-run spend. Edit the rates when model pricing changes, or tune the token estimates after checking real usage once. Everything here is an estimate. There is no per-run invoice, since scheduled tasks draw on the Claude plan rather than API billing. Treat the output as magnitude and trend, not accounting.",
+
+  "model": "Opus-class",
+  "usd_per_million_input": 4.0,
+  "usd_per_million_output": 20.0,
+
+  "_token_model": "Tokens for one sync run = base + (listed x per_listed) + (fetched x per_fetched) + output for each note written.",
+  "base_input_tokens": 18000,
+  "input_tokens_per_meeting_listed": 200,
+  "input_tokens_per_meeting_fetched": 1800,
+  "input_tokens_per_note_written": 400,
+  "output_chars_per_token": 3.5,
+
+  "_alerts": "Thresholds for the monthly report. A run that rewrites most of the archive usually means a bug, not real activity. warn_monthly_usd must stay below monthly_budget_usd, or the warning fires after the hard stop instead of before it.",
+  "warn_rewrite_ratio": 0.5,
+  "warn_monthly_usd": 8.0,
+  "warn_run_usd": 1.0,
+
+  "_budget": "Hard cap on estimated spend for the CURRENT calendar month. When month-to-date estimate reaches this, engine/budget_check.py exits 2 and the sync skill refuses to fetch. Resets automatically on the 1st. This caps an ESTIMATE, not a bill. Scheduled runs draw on the Claude plan, so crossing it does not mean money left an account. Set to 0 to disable the cap entirely.",
+  "monthly_budget_usd": 10.0
+}

@@ -1,0 +1,6 @@
+{"ts": "2026-10-19T08:05:00", "listed": 9, "fetched": 9, "new": 9, "refreshed": 0, "written": 9, "written_chars": 41000, "notes_total": 9, "note": "first backfill", "backfill": true}
+{"ts": "2026-10-20T08:05:00", "listed": 3, "fetched": 1, "new": 1, "refreshed": 0, "written": 1, "written_chars": 3800, "notes_total": 10, "note": "daily run"}
+{"ts": "2026-10-21T08:05:00", "listed": 3, "fetched": 0, "new": 0, "refreshed": 0, "written": 0, "written_chars": 0, "notes_total": 10, "note": "nothing new"}
+{"ts": "2026-10-22T08:05:00", "listed": 4, "fetched": 2, "new": 2, "refreshed": 0, "written": 2, "written_chars": 7600, "notes_total": 12, "note": "daily run"}
+{"ts": "2026-10-23T08:05:00", "listed": 4, "fetched": 0, "new": 0, "refreshed": 0, "written": 0, "written_chars": 0, "notes_total": 12, "note": "nothing new"}
+{"ts": "2026-10-26T08:05:00", "listed": 5, "fetched": 3, "new": 2, "refreshed": 1, "written": 3, "written_chars": 9800, "notes_total": 14, "note": "daily run"}

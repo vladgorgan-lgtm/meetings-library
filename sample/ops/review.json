@@ -1,0 +1,41 @@
+{
+  "generated": "2026-10-26T17:01:49",
+  "items": [
+    {
+      "id": "c-6858b708",
+      "origin": "curated",
+      "kind": "names",
+      "title": "Tomas, Tomáš",
+      "variants": [
+        "Tomas",
+        "Tomáš"
+      ],
+      "notes": [
+        "2026-10-23-vendor-call-harbor-systems"
+      ],
+      "detail": "Two spellings of one first name in a Gemini-only note. Same person as Tomas Novak?"
+    },
+    {
+      "id": "c-b0165174",
+      "origin": "auto",
+      "kind": "inconsistency",
+      "title": "Differs: Gemini spelled the participant \"Mateo Bellini\"; Granola's spelling was kept.",
+      "detail": "Differs: Gemini spelled the participant \"Mateo Bellini\"; Granola's spelling was kept.",
+      "notes": [
+        "2026-10-22-matteo-jordan"
+      ],
+      "where": "Matteo / Jordan (2026-10-22)"
+    },
+    {
+      "id": "c-6453918b",
+      "origin": "auto",
+      "kind": "unclear",
+      "title": "Unclear: the speaker named \"Tomas\" may be Tomas Novak or another person with the same first name.",
+      "detail": "Unclear: the speaker named \"Tomas\" may be Tomas Novak or another person with the same first name.",
+      "notes": [
+        "2026-10-23-vendor-call-harbor-systems"
+      ],
+      "where": "Vendor call: Harbor Systems (2026-10-23)"
+    }
+  ]
+}
