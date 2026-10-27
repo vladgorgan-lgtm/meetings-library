@@ -14,7 +14,13 @@ update every installation.
 4. If the change alters what users must do (not only the code), say it under a "Needs attention"
    heading in the changelog; the skill reports that section after an upgrade.
 5. Say "push to git" (see `publishing.md`). The scan must pass.
-6. Tag the pushed commit `vMAJOR.MINOR.PATCH` and publish a GitHub release.
+6. Nothing else. The GitHub Action in `.github/workflows/release.yml` creates the tag
+   `vMAJOR.MINOR.PATCH` and the GitHub release from `VERSION` and the matching `CHANGELOG.md`
+   section, once per version. Claude sessions cannot create tags or releases themselves.
+
+One-time setting: in the repository, Settings, Actions, General, Workflow permissions, choose
+"Read and write permissions". If a release does not appear, open the Actions tab and check
+the `release` run.
 
 ## Version rules
 

@@ -1,0 +1,37 @@
+# Creates the tag and GitHub release for the version in VERSION, once.
+# Runs on every push to main; does nothing if the tag already exists.
+name: release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag and release the current VERSION
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="$(tr -d '[:space:]' < VERSION)"
+          case "$V" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "VERSION is not x.y.z: $V"; exit 1 ;;
+          esac
+          TAG="v$V"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists, nothing to do."
+            exit 0
+          fi
+          awk -v v="$V" '
+            $0 ~ "^## \\[" v "\\]" {on=1; next}
+            on && /^## \[/ {exit}
+            on {print}
+          ' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md
