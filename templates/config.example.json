@@ -1,0 +1,25 @@
+{
+  "owner": "",
+  "granola_email": "",
+  "title": "Meeting Library",
+  "library": "~/WORK/Meetings",
+  "cadence": "weekdays 08:00",
+  "plan": "free",
+  "archive_transcripts": false,
+  "auto_tag_sensitive": true,
+  "me_aliases": [],
+  "aliases": {},
+  "granola": { "enabled": true },
+  "gemini": {
+    "enabled": false,
+    "sender": "gemini-notes@google.com",
+    "lookback_days": 2,
+    "backfill_from": "",
+    "drive_safety_net": true,
+    "skip_shortcuts": true,
+    "max_doc_kb": 200
+  },
+  "local_files": { "enabled": true, "max_mb": 5 },
+  "setup_date": "",
+  "_note": "Personal settings. Never published. owner = your name as it should appear; me_aliases = how you appear as an action owner in notes (for example your first name); aliases = misspelling to canonical spelling, applied at build time. Copy this file to config.json in your library and fill it in."
+}

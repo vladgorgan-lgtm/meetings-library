@@ -17,7 +17,24 @@ logs, not from commits, so versions 1.0.0 and 1.1.0 have no tag of their own.
 ### Planned
 - Middle layer rules for decisions (what counts as a decision, what makes one "key").
 - Engine-side wiring for Gemini notes beyond the sync runbook, and a cost estimate for it.
-- Contributor guide and a tagged release process.
+- Contributor guide.
+
+## [1.3.0] - 2026-10-27
+
+### Added
+- `skill/INSTRUCTIONS.md`: the full sync skill runbook now lives in this repository, matched to
+  the code. The skill becomes a thin stub that follows the latest release, so every release
+  updates every installation.
+- Update check at the start of each run (one `git ls-remote`, free). Patch and minor releases
+  apply automatically; a new major version asks first. Instructions are cached in the library
+  (`ops/skill-cache/`) so a failed fetch falls back to the last good copy.
+- `templates/config.example.json`: default config for new installs, including the Gemini and
+  local-files settings.
+- `docs/releasing.md`: how to cut a release and the version rules.
+
+### Needs attention
+- The repository is public from this release. The leak scan still gates every push.
+- Installed libraries add any new config keys on upgrade and never change existing values.
 
 ## [1.2.2] - 2026-10-26
 
