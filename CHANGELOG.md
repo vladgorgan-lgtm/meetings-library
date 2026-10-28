@@ -19,6 +19,36 @@ logs, not from commits, so versions 1.0.0 and 1.1.0 have no tag of their own.
 - Engine-side wiring for Gemini notes beyond the sync runbook, and a cost estimate for it.
 - Contributor guide.
 
+## [1.4.0] - 2026-10-28
+
+### Added
+- Settings page on a wide canvas, two boxes per row, with the sensitive-content box ahead of
+  the review box.
+- Needs review rebuilt: one top suggestion in settings with a link to a separate review page
+  (tabs Conflicts, Names, Approved). Held back, inconsistency and unclear checks are merged into
+  one Conflicts view, each answered with one plain decision.
+- Review priority: every check gets a 0 to 100 score at build time (no model calls) from a base
+  for its kind plus tunable factor weights (money, commitments, people, client, recency, reach).
+  Only high-scoring conflicts are shown; the rest are parked. Granola is the base and Gemini an
+  add-on: a check where only Gemini's side differs loses points (`granola_prior`) and stays
+  parked, so Granola's version stands. Names are always shown.
+- Approved rules list on the settings page, editable in place. Own rules now carry a scope
+  (everything, a person, a meeting type, one meeting) and a weight from 1 to 5; the more specific
+  rule wins and weight breaks ties. The rules file read by the middle layer states this.
+- Sensitive content is editable: a definition, optional keywords and title words, stored in
+  `config.json` under `sensitive`. The sync runbooks read the definition from there.
+- API: `/api/bulk` (answer several checks at once); `/api/general` accepts `update`, `scope`,
+  `scope_value` and `weight`; `/api/settings` accepts `review` and `sensitive`.
+
+### Changed
+- Sensitive meetings are visible by default. A "Hide sensitive" switch in the dashboard header
+  hides them everywhere; the choice is remembered in the browser.
+- The sensitive marker is a faint crossed-out eye instead of a lock.
+
+### Needs attention
+- New optional config keys `review` and `sensitive`; defaults apply when they are absent.
+- The sensitive definition guides notes fetched from the next run; existing tags are not rewritten.
+
 ## [1.3.0] - 2026-10-27
 
 ### Added

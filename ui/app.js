@@ -27,15 +27,25 @@ const slist = document.getElementById('slist'), pane = document.getElementById('
       chipsEl = document.getElementById('chips'), q = document.getElementById('q'),
       side = document.getElementById('side'), main = document.getElementById('main');
 let selected = null, facet = null, allActs = false, actOwner = null, view = null;
-/* sensitive notes are hidden everywhere (list, search, topics, decisions, actions) until
-   shown; the choice is remembered in this browser only */
-const SKEY = 'meetinglib.showSens';
-let showSens = false;
-try { showSens = localStorage.getItem(SKEY) === '1'; } catch(e){}
-const LOCK = '<svg class="lock" viewBox="0 0 16 16" width="12" height="12" aria-label="sensitive"><title>Sensitive</title><path fill="currentColor" d="M8 1a3.5 3.5 0 0 0-3.5 3.5V6H4a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-.5V4.5A3.5 3.5 0 0 0 8 1Zm-2 3.5a2 2 0 1 1 4 0V6H6V4.5Z"/></svg>';
+/* sensitive notes are shown by default and marked with a crossed-out eye. One switch in the
+   dashboard header hides them everywhere (list, search, topics, decisions, actions); the
+   choice is remembered in this browser only */
+const SKEY = 'meetinglib.hideSens';
+let showSens = true;
+try { showSens = localStorage.getItem(SKEY) !== '1'; } catch(e){}
+const EYE_OFF = '<svg class="sicon" viewBox="0 0 16 16" width="13" height="13" aria-label="sensitive" role="img"><title>Sensitive</title><g fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M1.2 8S3.6 3.4 8 3.4 14.8 8 14.8 8 12.4 12.6 8 12.6 1.2 8 1.2 8Z"/><circle cx="8" cy="8" r="2.1"/><path d="M2.6 13.4 13.4 2.6" stroke-width="1.6"/></g></svg>';
+const EYE_ON = '<svg class="sicon" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M1.2 8S3.6 3.4 8 3.4 14.8 8 14.8 8 12.4 12.6 8 12.6 1.2 8 1.2 8Z"/><circle cx="8" cy="8" r="2.1"/></g></svg>';
+const LOCK = EYE_OFF;   /* the marker next to every sensitive item (name kept for older call sites) */
 const visible = d => !d.sensitive || showSens;
 const nSensitive = DATA.filter(d => d.sensitive).length;
-function setSens(v){ showSens = v; try { localStorage.setItem(SKEY, v ? '1' : '0'); } catch(e){} render(); }
+function setSens(v){ showSens = v; try { localStorage.setItem(SKEY, v ? '0' : '1'); } catch(e){} render(); }
+/* the header switch: on = sensitive content is hidden */
+function sensSwitch(){
+  return `<button class="sens-sw${showSens ? '' : ' on'}" data-sensall="1" role="switch" aria-checked="${showSens ? 'false' : 'true'}"
+      title="${showSens ? 'Hide' : 'Show'} all sensitive content (${nSensitive} meetings)"${nSensitive ? '' : ' disabled'}>
+    <span class="sw-ic">${showSens ? EYE_ON : EYE_OFF}</span><span class="sw-tx">Hide sensitive</span>
+    <span class="sw-track"><i></i></span></button>`;
+}
 
 const PALETTE = ['#cfe3a8','#f2d9a0','#e8c4c0','#c9d8ee','#dfcfe8','#f0d7b4','#bfdcd2','#eccfd8'];
 function tint(s){ let h=0; for (const c of s) h = (h*31 + c.charCodeAt(0)) >>> 0;
@@ -105,8 +115,8 @@ function matches(d){
 
 function sensBar(){
   const srv = window.ML_SERVER ? '' : ' (read-only: start the server to save settings)';
-  return `<div class="sbar"><button class="sbtn${showSens ? ' on' : ''}" data-sensall="1" ${nSensitive ? '' : 'disabled'}
-      title="Sensitive meetings are hidden until you show them">${LOCK} ${showSens ? 'hide' : 'show'} sensitive (${nSensitive})</button>
+  return `<div class="sbar"><button class="sbtn${showSens ? '' : ' on'}" data-sensall="1" ${nSensitive ? '' : 'disabled'}
+      title="Switch sensitive content off or on everywhere">${showSens ? EYE_ON : EYE_OFF} ${showSens ? 'hide' : 'show'} sensitive (${nSensitive})</button>
     <button class="sbtn${view === 'settings' ? ' on' : ''}" data-settings="1" title="Settings${esc(srv)}">&#9881; Settings${
       L.review && L.review.open ? ` <i class="badge">${L.review.open}</i>` : ''}</button></div>`;
 }
@@ -181,7 +191,7 @@ function renderDash(){
         <h1>${esc(TITLE)}</h1>
         <div class="pillrow">
           <span class="gp">&#128202; <b>Dashboard</b></span>
-          <span class="gp">&#128197; rebuilt ${esc(BUILT)}</span>${L.demo ? `<span class="gp">&#9888; <b>demo data</b> &mdash; fictional people and companies</span>` : ''}
+          <span class="gp">&#128197; rebuilt ${esc(BUILT)}</span>${sensSwitch()}${L.demo ? `<span class="gp">&#9888; <b>demo data</b> &mdash; fictional people and companies</span>` : ''}
         </div>
       </div>${costWidget()}</div>
       <div class="stats">
@@ -328,7 +338,7 @@ function decFoot(nSens, total, searching){
   const more = !searching && total > 8
     ? `<button class="more" data-decs="1">${allDecs ? '&minus; show fewer' : '+ view the other ' + (total - 8)}</button>` : '';
   const sens = (nSens || showSens)
-    ? `<button class="more" data-sensall="1">${showSens ? 'hide sensitive' : 'show sensitive (' + nSens + ')'}</button>` : '';
+    ? `<button class="more" data-sensall="1">${showSens ? 'hide sensitive' : 'show sensitive (' + nSens + ' hidden)'}</button>` : '';
   return (more || sens) ? `<div class="dfoot">${more}${sens}</div>` : '';
 }
 function decCount(){
@@ -440,7 +450,8 @@ function capBanner(){
 
 function renderPane(){
   /* the dashboard gets the wide two-column canvas; every other view keeps the reading width */
-  pane.classList.toggle('wide', !(selected && byId[selected]) && !q.value && !facet);
+  pane.classList.toggle('wide', !(selected && byId[selected]) && !q.value && !facet && view !== 'settings');
+  pane.classList.toggle('swide', view === 'settings');
   if (view === 'settings' && typeof renderSettings === 'function') return renderSettings(pane);
   if (selected && byId[selected]) return renderDetail(byId[selected]);
   if (!q.value && !facet) return renderDash();

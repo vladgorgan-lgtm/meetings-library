@@ -89,6 +89,15 @@ for _iid, _res in (RESOLUTIONS.get("items") or {}).items():
 OVERRIDES = _load_json("rules/overrides.json", {})
 SENS_ADD, SENS_REMOVE = set(OVERRIDES.get("add") or []), set(OVERRIDES.get("remove") or [])
 SENS_TITLES = [t.lower() for t in (OVERRIDES.get("title_patterns") or [])]
+# What counts as sensitive. The definition text is what the sync reads when it tags a note
+# (the owner edits it on the settings page, stored in config.json). The keywords are the
+# free, deterministic part: a meeting whose title, tags or text contains one is marked here.
+DEFAULT_SENSITIVE = ("Performance reviews or concerns about a named person; separations, departures "
+                     "and retention risk; compensation, salary and bonus; security incidents; "
+                     "named staffing decisions.")
+_SC = CONFIG.get("sensitive") or {}
+SENS_DEFINITION = (_SC.get("definition") or "").strip() or DEFAULT_SENSITIVE
+SENS_KEYWORDS = [k.strip().lower() for k in (_SC.get("keywords") or []) if str(k).strip()]
 # tags that describe how a note was captured, not what it is about; never a topic card
 TOPIC_EXCLUDE = set({"no-summary", "sensitive", "difficult-conversation",
                                              "gemini-only", "needs-name-check", "gemini-merged"}) \
@@ -276,8 +285,10 @@ def collect():
         actions, decisions = extract_actions(acts_text)
         tags = as_list(meta.get("tags"))
         nid = name[:-3]
+        hay = (title + " " + " ".join(tags) + " " + body).lower() if SENS_KEYWORDS else ""
         sensitive = (("sensitive" in tags or nid in SENS_ADD
-                      or any(t in title.lower() for t in SENS_TITLES)) and nid not in SENS_REMOVE)
+                      or any(t in title.lower() for t in SENS_TITLES)
+                      or any(k in hay for k in SENS_KEYWORDS)) and nid not in SENS_REMOVE)
         entries.append({
             "id": name[:-3],
             "file": "notes/" + name,
@@ -548,6 +559,15 @@ def review_snapshot(entries):
         return {"items": [], "general": [], "open": 0, "answered": 0}
 
 
+def review_config():
+    try:
+        import review
+        review.use_library(ROOT)
+        return review.load_review_cfg()
+    except Exception:
+        return {}
+
+
 def settings_snapshot():
     """What the settings page shows. Read-only copy; the server writes the real files."""
     cfg = CONFIG
@@ -565,6 +585,11 @@ def settings_snapshot():
         "queue": _load_json("inbox/queue.json", {"items": []}).get("items", []),
         "overrides": {"add": sorted(SENS_ADD), "remove": sorted(SENS_REMOVE),
                       "title_patterns": OVERRIDES.get("title_patterns") or []},
+        "sensitive": {"definition": SENS_DEFINITION, "default": DEFAULT_SENSITIVE,
+                      "is_default": SENS_DEFINITION == DEFAULT_SENSITIVE,
+                      "keywords": [k for k in (_SC.get("keywords") or []) if str(k).strip()],
+                      "title_patterns": OVERRIDES.get("title_patterns") or []},
+        "review": review_config(),
         "plan": cfg.get("plan", ""), "cadence": cfg.get("cadence", ""),
     }
 

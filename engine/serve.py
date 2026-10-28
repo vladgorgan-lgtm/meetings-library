@@ -144,7 +144,30 @@ def save_settings(b):
         tags = sorted({re.sub(r"[^a-z0-9\-_ ]", "", str(t).lower()).strip() for t in b["topic_exclude"]} - {""})
         cfg["topic_exclude"] = tags[:60]
         changed.append("topic_exclude")
-    if any(k in b for k in ("granola", "gemini", "local_files", "topic_exclude")):
+    if "review" in b:
+        rv = b["review"]
+        cfg["review"] = {"weights": {k: int(num(v, 0, 50, "weight " + k)) for k, v in (rv.get("weights") or {}).items()
+                                      if k in ("money", "commitment", "people", "external", "recent", "reach", "granola_prior")},
+                         "must_threshold": int(num(rv.get("must_threshold", 45), 0, 100, "must-resolve threshold"))}
+        changed.append("review")
+    if "sensitive" in b:
+        sv = b["sensitive"]
+        words = []
+        for k in (sv.get("keywords") or []):
+            k = re.sub(r"\s+", " ", str(k)).strip().lower()[:60]
+            if k and k not in words:
+                words.append(k)
+        cfg["sensitive"] = {"definition": str(sv.get("definition", "")).strip()[:2000], "keywords": words[:60]}
+        pats = []
+        for t in (sv.get("title_patterns") or []):
+            t = re.sub(r"\s+", " ", str(t)).strip().lower()[:80]
+            if t and t not in pats:
+                pats.append(t)
+        o = read_json("rules/overrides.json", {"add": [], "remove": [], "title_patterns": []})
+        o["title_patterns"] = pats[:60]
+        write_json("rules/overrides.json", o)
+        changed.append("sensitive")
+    if any(k in b for k in ("granola", "gemini", "local_files", "topic_exclude", "review", "sensitive")):
         write_json("config.json", cfg)
     # turning a connector off only stops future fetching; notes are never touched
     log("settings", ",".join(changed))
@@ -160,11 +183,22 @@ def answer(b):
 
 
 def general(b):
+    fields = (b.get("text", ""), b.get("scope", "all"), b.get("scope_value", ""), b.get("weight", 3))
     if b.get("delete"):
         review.delete_general(str(b["delete"]))
+    elif b.get("update"):
+        review.update_general(str(b["update"]), *fields)
     else:
-        review.add_general(b.get("text", ""))
-    log("general-rule", "delete" if b.get("delete") else "add")
+        review.add_general(*fields)
+    log("general-rule", "delete" if b.get("delete") else "update" if b.get("update") else "add")
+    ok, out = rebuild()
+    return {"ok": ok, "build": out}
+
+
+def bulk(b):
+    ids = [str(i) for i in (b.get("ids") or [])][:200]
+    review.bulk_resolve(ids, b.get("status", "ignored"), b.get("response", ""))
+    log("bulk", f"{b.get('status', 'ignored')} x{len(ids)}")
     ok, out = rebuild()
     return {"ok": ok, "build": out}
 
@@ -256,7 +290,7 @@ def run_now(_b):
         return {"ok": False, "message": f"Could not reach Claude ({e.__class__.__name__}).", "fallback_url": FALLBACK_URL}
 
 
-ROUTES = {"/api/settings": save_settings, "/api/answer": answer, "/api/general": general,
+ROUTES = {"/api/settings": save_settings, "/api/answer": answer, "/api/general": general, "/api/bulk": bulk,
           "/api/sensitive": sensitive, "/api/queue/add": queue_add, "/api/queue/remove": queue_remove,
           "/api/run": run_now, "/api/rebuild": lambda b: dict(zip(("ok", "build"), rebuild()))}
 

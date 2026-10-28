@@ -20,6 +20,7 @@
     "max_doc_kb": 200
   },
   "local_files": { "enabled": true, "max_mb": 5 },
+  "sensitive": { "definition": "", "keywords": [] },
   "setup_date": "",
   "_note": "Personal settings. Never published. owner = your name as it should appear; me_aliases = how you appear as an action owner in notes (for example your first name); aliases = misspelling to canonical spelling, applied at build time. Copy this file to config.json in your library and fill it in."
 }

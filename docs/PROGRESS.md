@@ -25,6 +25,8 @@ release process.
 | Oct 26 | Second source added (Gemini notes, merged per meeting). Local settings page and server, "Run fetch now", needs-review workflow, backups before each risky change. Repository created with a fictional demo. | 1.2.0 |
 | Oct 26 (evening) | Publishing made safe and repeatable: one command, a leak scan over exactly the files that may leave the computer, and the library folder aligned with the repository. | 1.2.1 |
 | Oct 26 (night) | Privacy rules locked: the publish check refuses to run if the ignore rules or the check itself were changed without the owner's approval. Rules written into the folder for any session. | 1.2.2 |
+| Oct 27 | The sync skill moved into the repository and became a thin stub: every release updates every installation, with an update check at the start of each run and a cached fallback. Repository made public. | 1.3.0 |
+| Oct 28 | Settings reorganised on a wide page. Reviews cut down to what matters: a priority score, Granola as the base with Gemini as an add-on, the rest parked. Approved rules editable, rules get a scope and weight. Sensitive content defined by you, shown by default with a header switch to hide it. | 1.4.0 |
 
 ## How this file is kept
 

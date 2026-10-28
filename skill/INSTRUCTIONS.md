@@ -56,7 +56,8 @@ Do not sync yet. Ask once, in one round (AskUserQuestion where it fits):
    Create the scheduled task to match (template below).
 3. Granola plan. Call `get_account_info`. Free: 30-day history, no transcripts. Paid: offer a
    full backfill.
-4. Sensitive content: performance, separations or compensation. Confirm it stays local and
+4. Sensitive content (default: performance, separations or compensation; editable later on the
+   settings page). Confirm it stays local and
    whether to auto-tag `sensitive`.
 5. Their name, and how they appear in notes (`owner`, `me_aliases`). Add a first name only if
    no colleague shares it.
@@ -203,8 +204,10 @@ Rules:
   misspells names, so check existing notes and the `aliases` map in `config.json` first, and
   offer to add new variants to `aliases`.
 - Empty summaries: write the file anyway and tag it `no-summary`; a later run fills it in.
-- Tag `sensitive` on performance, separations, compensation or security incidents when
-  `auto_tag_sensitive` is set.
+- Tag `sensitive` when a meeting fits the owner's definition and `auto_tag_sensitive` is set.
+  The definition is `sensitive.definition` in `config.json` (edited on the settings page); if it is
+  missing, use: performance reviews or concerns about a named person, separations, departures and
+  retention risk, compensation, salary and bonus, security incidents, named staffing decisions.
 - No em dashes in text you write for the owner; use commas, colons or periods.
 
 ## Sharing
