@@ -87,6 +87,54 @@ for _iid, _res in (RESOLUTIONS.get("items") or {}).items():
             else:
                 ALIASES[_v.lower()] = _m["canonical"]
 OVERRIDES = _load_json("rules/overrides.json", {})
+# Decision rules from the settings page (config.json "decision_rules", private).
+#   spelling:   wrong spellings -> the right one, applied to everything the page shows
+#   hot_topics: keywords to highlight / group on the Decisions page (applied in the viewer)
+_DR = CONFIG.get("decision_rules") or {}
+# "Keep fresh" presses on open actions (ops/keeps.json, private): {"<note id>|<action text>": {"count": n, "last": "YYYY-MM-DD"}}
+def _apply_pending():
+    """pending-changes*.json dropped in inbox/ (downloaded from the page): merge into ops/, then park the file."""
+    d = os.path.join(ROOT, "inbox")
+    if not os.path.isdir(d):
+        return
+    for name in sorted(os.listdir(d)):
+        if not (name.startswith("pending-changes") and name.endswith(".json")):
+            continue
+        try:
+            with open(os.path.join(d, name), encoding="utf-8") as fh:
+                pend = json.load(fh)
+            os.makedirs(os.path.join(ROOT, "ops"), exist_ok=True)
+            rem = [k for k in _load_json("ops/removed.json", []) if isinstance(k, str)]
+            for k, v in (pend.get("removed") or {}).items():
+                rem = [x for x in rem if x != k]
+                if v:
+                    rem.append(k)
+            kp = _load_json("ops/keeps.json", {})
+            for k, e in (pend.get("keeps") or {}).items():
+                if int(e.get("count", 0)) > 0:
+                    kp[k] = {"count": int(e["count"]), "last": str(e.get("last", ""))[:10]}
+                else:
+                    kp.pop(k, None)
+            for rel, obj in (("ops/removed.json", rem[-3000:]), ("ops/keeps.json", kp)):
+                with open(os.path.join(ROOT, rel), "w", encoding="utf-8") as fh:
+                    json.dump(obj, fh, ensure_ascii=False, indent=2)
+            os.replace(os.path.join(d, name), os.path.join(d, name + ".done"))
+            print(f"applied {name}")
+        except (OSError, ValueError, AttributeError) as exc:
+            print(f"pending changes skipped ({name}: {exc})")
+
+
+_apply_pending()
+KEEPS = _load_json("ops/keeps.json", {})
+# decisions removed from the quick list with the X (ops/removed.json, private): list of "<note id>|<decision text>"
+REMOVED = [k for k in _load_json("ops/removed.json", []) if isinstance(k, str)]
+SPELLING = []
+for _r in (_DR.get("spelling") or []):
+    _right = str(_r.get("right", "")).strip()
+    for _w in (_r.get("wrong") or []):
+        _w = str(_w).strip()
+        if _w and _right and _w.lower() != _right.lower():
+            SPELLING.append((re.compile(r"\b" + re.escape(_w) + r"\b", re.I), _right))
 SENS_ADD, SENS_REMOVE = set(OVERRIDES.get("add") or []), set(OVERRIDES.get("remove") or [])
 SENS_TITLES = [t.lower() for t in (OVERRIDES.get("title_patterns") or [])]
 # What counts as sensitive. The definition text is what the sync reads when it tags a note
@@ -113,10 +161,43 @@ def canon(name):
     return ALIASES.get(name.strip().lower(), name.strip())
 
 
+GEM_RX = re.compile(r"\s*\*\(added from Gemini(?:;\s*([^)]*))?\)\*", re.I)
+INF_RX = re.compile(r"\s*\*?\(inferred from Details[^)]*\)\*?", re.I)
+OWN_RX = re.compile(r"(?:,\s*|\s+[\u2014\u2013-]+\s+)(?:owner not stated|no owner yet)(?:\s*\(group\))?\.?\s*$", re.I)
+
+
+def split_notes(text):
+    """Take the bookkeeping out of the sentence: (clean text, flags). The page shows the flags as small
+    markers with the original wording on hover. Notes on disk are not changed."""
+    flags = {}
+    m = GEM_RX.search(text)
+    if m:
+        flags["gemini"] = (m.group(1) or "").strip()
+        if "inferred" in flags["gemini"].lower():
+            flags["inferred"] = True
+        text = GEM_RX.sub("", text)
+    if INF_RX.search(text):
+        flags["inferred"] = True
+        text = INF_RX.sub("", text)
+    if OWN_RX.search(text):
+        flags["unassigned"] = True
+        text = OWN_RX.sub("", text)
+    return text.strip(), flags
+
+
+def fix_spelling(text):
+    """Your spelling-fix rules (settings > Spelling fixes). Notes on disk are never edited."""
+    if not text:
+        return text
+    for rx, good in SPELLING:
+        text = rx.sub(good, text)
+    return text
+
+
 def fix_terms(text):
     for bad, good in TERMS.items():
         text = re.sub(r"\b" + re.escape(bad) + r"\b", good, text)
-    return text
+    return fix_spelling(text)
 
 
 def canon_owner(name):
@@ -278,12 +359,12 @@ def collect():
                         if p.strip().lower() not in NOT_PERSON)
         if OWNER_NAME:  # the owner is in every meeting; listing them adds noise
             people = [p for p in people if p != OWNER_NAME]
-        title = str(meta.get("title") or name[:-3])
+        title = fix_spelling(str(meta.get("title") or name[:-3]))
         iso = str(meta.get("date"))
         acts_text = section(body, "Decisions & actions")
         acts_text = fix_terms(acts_text)
         actions, decisions = extract_actions(acts_text)
-        tags = as_list(meta.get("tags"))
+        tags = [fix_spelling(t).lower() for t in as_list(meta.get("tags"))]
         nid = name[:-3]
         hay = (title + " " + " ".join(tags) + " " + body).lower() if SENS_KEYWORDS else ""
         sensitive = (("sensitive" in tags or nid in SENS_ADD
@@ -316,9 +397,9 @@ def collect():
             "actions_md": acts_text,
             "actions": actions,
             "decisions": decisions,
-            "note": section(body, "Note"),
-            "private": section(body, "Private notes"),
-            "full": WIKILINK.sub(r"\1", body),
+            "note": fix_spelling(section(body, "Note")),
+            "private": fix_spelling(section(body, "Private notes")),
+            "full": fix_spelling(WIKILINK.sub(r"\1", body)),
             "age": age_days(iso, today),
         })
     entries.sort(key=lambda e: (e["date"], e["sort"]), reverse=True)
@@ -344,7 +425,7 @@ def merged_decisions(decisions, entries):
         decisions = insights.merge_into(decisions, entries)
     except Exception as exc:
         print(f"insights layer skipped ({exc})")
-    decisions = sorted(decisions, key=lambda d: d["date"], reverse=True)[:60]
+    decisions = sorted(decisions, key=lambda d: d["date"], reverse=True)   # no cap: every decision reaches the page
     _GROUPS[:] = []
     try:
         _GROUPS.extend(insights.resolve_groups(decisions))
@@ -352,7 +433,45 @@ def merged_decisions(decisions, entries):
             print("decision grouping is stale: new or removed decisions since the last grouping")
     except Exception as exc:
         print(f"decision grouping skipped ({exc})")
+    # spelling fixes last: groups.json matches on the raw text, so keep that as the key
+    for d in decisions:
+        d["key"] = d["id"] + "|" + d["text"]
+        d["text"], d["flags"] = split_notes(fix_spelling(d["text"]))
+        d["title"] = fix_spelling(d["title"])
+    for g in _GROUPS:
+        for k in ("title", "digest", "note"):
+            g[k] = fix_spelling(g.get(k, ""))
+        for i in g["items"]:
+            i["text"], i["flags"] = split_notes(fix_spelling(i["text"]))
+            for s in i["sources"]:
+                s["title"] = fix_spelling(s["title"])
     return decisions
+
+
+# How much a meeting matters, from things already in the note: no model calls.
+TYPE_BASE = {"client": 35, "internal-group": 20, "internal": 15, "community": 10, "event": 10, "onboarding": 10}
+
+
+def meeting_importance(entries, decisions):
+    n_dec, n_key = {}, {}
+    for d in decisions:
+        n_dec[d["id"]] = n_dec.get(d["id"], 0) + 1
+        if int(d.get("importance", 0) or 0) >= 3:
+            n_key[d["id"]] = n_key.get(d["id"], 0) + 1
+    out = {}
+    for e in entries:
+        att, men = len(e["people"]), len(e["mentioned"])
+        parts = [("type " + e["type"], TYPE_BASE.get(e["type"], 5)),
+                 (f"{att} attendees", min(att, 10) * 4), (f"{men} mentioned", min(men, 5)),
+                 (f"{n_dec.get(e['id'], 0)} decisions", min(n_dec.get(e["id"], 0), 5) * 4)]
+        if n_key.get(e["id"]):
+            parts.append(("key decision", 10))
+        if e["account"]:
+            parts.append(("client account", 10))
+        score = min(100, sum(p for _, p in parts))
+        out[e["id"]] = {"score": score, "level": "high" if score >= 55 else "medium" if score >= 35 else "low",
+                        "why": [f"{w} (+{p})" for w, p in parts if p]}
+    return out
 
 
 def build_dashboard(entries):
@@ -392,6 +511,7 @@ def build_dashboard(entries):
             decisions.append({"text": d_, "id": e["id"], "title": e["title"],
                               "day": e["day"], "date": e["date"], "sensitive": e["sensitive"]})
 
+    decisions_all = merged_decisions(decisions, entries)
     top_topics = sorted(topics.values(), key=lambda d: -d["score"])[:18]   # the page hides sensitive refs, so keep spare
     for t in top_topics:
         t["notes"].sort(key=lambda n: n["date"], reverse=True)
@@ -406,6 +526,25 @@ def build_dashboard(entries):
         p["score"] = round(p["score"], 2)
 
     # owners with the most outstanding items; owner aliases folded in canon_owner()
+    # age label: fresh up to 7 days, check in up to 21, probably done after that.
+    # "Keep fresh" restarts the clock; kept twice, an action stays fresh.
+    rank = {"fresh": 0, "check": 1, "old": 2}
+    today_ = date.today()
+    for a in open_acts:
+        a["key"] = a["id"] + "|" + a["what"]
+        a["what"], a["flags"] = split_notes(a["what"])
+        k = KEEPS.get(a["key"]) or {}
+        age = a["age"]
+        if k.get("last"):
+            try:
+                age = min(age, (today_ - date.fromisoformat(k["last"])).days)
+            except ValueError:
+                pass
+        a["keeps"] = int(k.get("count", 0))
+        a["pinned"] = a["keeps"] >= 2
+        a["tier"] = "fresh" if (a["pinned"] or age <= 7) else "check" if age <= 21 else "old"
+    open_acts.sort(key=lambda a: a["date"], reverse=True)
+    open_acts.sort(key=lambda a: rank[a["tier"]])
     by_owner = {}
     for a in open_acts:
         key = a["owner"] or "Unassigned"
@@ -415,10 +554,12 @@ def build_dashboard(entries):
     return {
         "topics": top_topics,
         "people": top_people,
-        "open": sorted(open_acts, key=lambda a: a["date"], reverse=True),
+        "open": open_acts,
         "owners": [{"owner": k, "items": v} for k, v in owners],
-        "decisions": merged_decisions(decisions, entries),
+        "decisions": decisions_all,
         "dgroups": _GROUPS,
+        "removed": REMOVED,
+        "mimp": meeting_importance(entries, decisions_all),
         "counts": {
             "notes": len(entries),
             "open": len(open_acts),
@@ -589,6 +730,8 @@ def settings_snapshot():
                       "is_default": SENS_DEFINITION == DEFAULT_SENSITIVE,
                       "keywords": [k for k in (_SC.get("keywords") or []) if str(k).strip()],
                       "title_patterns": OVERRIDES.get("title_patterns") or []},
+        "hot_topics": _DR.get("hot_topics") or [],
+        "spelling": _DR.get("spelling") or [],
         "review": review_config(),
         "plan": cfg.get("plan", ""), "cadence": cfg.get("cadence", ""),
     }

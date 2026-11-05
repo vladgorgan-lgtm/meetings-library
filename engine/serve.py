@@ -29,7 +29,28 @@ import review  # noqa: E402
 
 ROOT = library_root()
 review.use_library(ROOT)
-TOKEN = secrets.token_urlsafe(24)
+
+
+def load_token():
+    """One token kept on disk (ops/server-token, owner-only), so a server restart never
+    leaves an open page holding a stale token."""
+    f = os.path.join(ROOT, "ops", "server-token")
+    try:
+        with open(f, encoding="utf-8") as fh:
+            t = fh.read().strip()
+        if len(t) >= 20:
+            return t
+    except OSError:
+        pass
+    t = secrets.token_urlsafe(24)
+    os.makedirs(os.path.dirname(f), exist_ok=True)
+    fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(t)
+    return t
+
+
+TOKEN = load_token()
 PORT = 8765
 LOCK = threading.Lock()
 STATIC_DIRS = ("ui", "data", "notes")
@@ -167,7 +188,31 @@ def save_settings(b):
         o["title_patterns"] = pats[:60]
         write_json("rules/overrides.json", o)
         changed.append("sensitive")
-    if any(k in b for k in ("granola", "gemini", "local_files", "topic_exclude", "review", "sensitive")):
+    if "decision_rules" in b:
+        dr = b["decision_rules"] or {}
+        def words(v, cap=60):
+            out = []
+            for w in (v if isinstance(v, list) else str(v).split(",")):
+                w = re.sub(r"\s+", " ", str(w)).strip()[:cap]
+                if w and w.lower() not in [x.lower() for x in out]:
+                    out.append(w)
+            return out[:30]
+        hot = []
+        for h in (dr.get("hot_topics") or [])[:40]:
+            kws = words(h.get("keywords") or h.get("name") or "")
+            name = re.sub(r"\s+", " ", str(h.get("name") or (kws[0] if kws else ""))).strip()[:60]
+            if not kws:
+                continue
+            hot.append({"id": str(h.get("id") or "h" + secrets.token_hex(3)), "name": name, "keywords": kws,
+                        "bold": flag(h.get("bold")), "group": "meeting" if h.get("group") == "meeting" else "none"})
+        spell = []
+        for s in (dr.get("spelling") or [])[:40]:
+            wrong, right = words(s.get("wrong") or ""), re.sub(r"\s+", " ", str(s.get("right") or "")).strip()[:80]
+            if wrong and right:
+                spell.append({"id": str(s.get("id") or "s" + secrets.token_hex(3)), "wrong": wrong, "right": right})
+        cfg["decision_rules"] = {"hot_topics": hot, "spelling": spell}
+        changed.append("decision_rules")
+    if any(k in b for k in ("granola", "gemini", "local_files", "topic_exclude", "review", "sensitive", "decision_rules")):
         write_json("config.json", cfg)
     # turning a connector off only stops future fetching; notes are never touched
     log("settings", ",".join(changed))
@@ -191,6 +236,64 @@ def general(b):
     else:
         review.add_general(*fields)
     log("general-rule", "delete" if b.get("delete") else "update" if b.get("update") else "add")
+    ok, out = rebuild()
+    return {"ok": ok, "build": out}
+
+
+def overlay(b):
+    """Everything the page changed (X, Keep fresh) in one call: absolute states, one rebuild."""
+    rem = [k for k in read_json("ops/removed.json", []) if isinstance(k, str)]
+    for k, v in (b.get("removed") or {}).items():
+        k = str(k)[:600]
+        rem = [x for x in rem if x != k]
+        if v:
+            rem.append(k)
+    write_json("ops/removed.json", rem[-3000:])
+    keeps = read_json("ops/keeps.json", {})
+    for k, e in (b.get("keeps") or {}).items():
+        c = int(e.get("count", 0))
+        if c > 0:
+            keeps[str(k)[:600]] = {"count": c, "last": str(e.get("last", ""))[:10]}
+        else:
+            keeps.pop(str(k), None)
+    write_json("ops/keeps.json", keeps)
+    log("overlay", f"{len(b.get('removed') or {})} removed, {len(b.get('keeps') or {})} keeps")
+    ok, out = rebuild()
+    return {"ok": ok, "build": out}
+
+
+def remove(b):
+    """The X on a decision: take it off the quick list (saved here, so it survives rebuilds).
+    keys = decision keys; undo puts them back; all+undo puts every one back."""
+    cur = read_json("ops/removed.json", [])
+    cur = [k for k in cur if isinstance(k, str)]
+    if b.get("undo") and b.get("all"):
+        cur = []
+    else:
+        keys = [str(k)[:600] for k in (b.get("keys") or [])][:500]
+        if b.get("undo"):
+            cur = [k for k in cur if k not in set(keys)]
+        else:
+            cur += [k for k in keys if k not in cur]
+    write_json("ops/removed.json", cur[-3000:])
+    log("remove", "undo" if b.get("undo") else "x")
+    ok, out = rebuild()
+    return {"ok": ok, "build": out}
+
+
+def keep(b):
+    """Keep fresh: restart an action's age clock; pressed twice, it stays fresh."""
+    key = str(b.get("key", ""))[:600]
+    if not key:
+        raise ValueError("no action given")
+    keeps = read_json("ops/keeps.json", {})
+    if b.get("reset"):
+        keeps.pop(key, None)
+    else:
+        k = keeps.get(key) or {"count": 0}
+        keeps[key] = {"count": int(k.get("count", 0)) + 1, "last": datetime.now().strftime("%Y-%m-%d")}
+    write_json("ops/keeps.json", keeps)
+    log("keep", "reset" if b.get("reset") else "fresh")
     ok, out = rebuild()
     return {"ok": ok, "build": out}
 
@@ -290,7 +393,7 @@ def run_now(_b):
         return {"ok": False, "message": f"Could not reach Claude ({e.__class__.__name__}).", "fallback_url": FALLBACK_URL}
 
 
-ROUTES = {"/api/settings": save_settings, "/api/answer": answer, "/api/general": general, "/api/bulk": bulk,
+ROUTES = {"/api/settings": save_settings, "/api/answer": answer, "/api/general": general, "/api/bulk": bulk, "/api/keep": keep, "/api/remove": remove, "/api/overlay": overlay,
           "/api/sensitive": sensitive, "/api/queue/add": queue_add, "/api/queue/remove": queue_remove,
           "/api/run": run_now, "/api/rebuild": lambda b: dict(zip(("ok", "build"), rebuild()))}
 
@@ -321,6 +424,13 @@ class H(BaseHTTPRequestHandler):
         if not self._host_ok():
             return self._send(403, {"error": "bad host"})
         path = self.path.split("?", 1)[0]
+        if path == "/api/ping":
+            try:
+                build = os.stat(p("data/library.js")).st_mtime_ns
+            except OSError:
+                build = 0
+            cfg = read_json("ops/routine.json", {})
+            return self._send(200, {"ok": True, "build": build, "run": bool(cfg.get("id") and cfg.get("token"))})
         if path in ("/", "/index.html"):
             html = open(p("index.html"), encoding="utf-8").read()
             inject = (f'<script>window.ML_SERVER={{token:"{TOKEN}"}};</script>')
@@ -358,13 +468,33 @@ class H(BaseHTTPRequestHandler):
             self._send(500, {"ok": False, "error": f"{e.__class__.__name__}: {e}"})
 
 
+def catch_up():
+    """Changes written to ops/ while no server was running (older folder-connect saves, a
+    pending change from another tool) are not in the page data yet: rebuild once at start."""
+    try:
+        built = os.stat(p("data/library.js")).st_mtime
+        newest = max((os.stat(p(f)).st_mtime for f in ("ops/removed.json", "ops/keeps.json") if os.path.exists(p(f))), default=0)
+        if newest > built:
+            ok, out = rebuild()
+            log("catch-up-rebuild", "ok" if ok else out[-200:])
+    except OSError:
+        pass
+
+
 def main():
     global PORT
     a = sys.argv[1:]
     if "--port" in a:
         PORT = int(a[a.index("--port") + 1])
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), H)
     url = f"http://127.0.0.1:{PORT}/"
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", PORT), H)
+    except OSError:      # already running (for example started at login): just open it
+        print(f"Meeting Library is already running at {url}")
+        if "--no-open" not in a:
+            webbrowser.open(url)
+        return
+    catch_up()
     print(f"Meeting Library at {url}  (Ctrl+C to stop)")
     if "--no-open" not in a:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

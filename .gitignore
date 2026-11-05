@@ -31,3 +31,6 @@ __pycache__/
 .env
 *.token
 routine.json
+
+# holding folder for old copies; never published
+/_to_delete/

@@ -11,7 +11,7 @@ const RV = SET.review || {weights: {}, must_threshold: 50, defaults: {weights: {
 const SENSI = SET.sensitive || {definition: '', default: '', keywords: [], title_patterns: []};
 
 async function mlApi(path, body){
-  if (!SRV) throw new Error('Settings can only be saved while the local server is running (Start Meeting Library).');
+  if (!SRV) throw new Error('Saving needs the local server. Open the library at http://127.0.0.1:8765/ (Install Auto-Start makes it start by itself).');
   const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-ML-Token': SRV.token},
     body: JSON.stringify(body || {})});
   let j = {}; try { j = await r.json(); } catch(e){}
@@ -271,6 +271,69 @@ function secDisplay(){
     <div class="fact"><button class="btn" id="save-disp"${dis}>Save</button></div></div>`;
 }
 
+/* ---------------------------------------------------------------- decision rules: hot topics, spelling */
+const HOT_S = SET.hot_topics || [], SPELL = SET.spelling || [];
+function hotRow(h){
+  h = h || {id: '', name: '', keywords: [], bold: true, group: 'none'};
+  const n = (h.keywords || []).length ? hotCount(h) : null;
+  return `<div class="hrow" data-hid="${esc(h.id || '')}">
+    <label>Topic<input class="h-name" value="${esc(h.name)}" placeholder="e.g. Budget review"${dis}></label>
+    <label class="hk">Keywords that mark it (comma separated)<input class="h-kw" value="${esc((h.keywords || []).join(', '))}" placeholder="blank = the topic name"${dis}></label>
+    <label>Show decisions<select class="h-group"${dis}>
+      <option value="none"${h.group === 'meeting' ? '' : ' selected'}>as a plain list</option>
+      <option value="meeting"${h.group === 'meeting' ? ' selected' : ''}>grouped by meeting</option></select></label>
+    <label class="tgl hb"><input type="checkbox" class="h-bold"${checked(h.bold)}${dis}> bold</label>
+    <span class="hn">${n == null ? 'new' : n + ' match' + (n === 1 ? '' : 'es')}</span>
+    <button class="x" data-hdel="1" title="Remove this hot topic"${dis}>&times;</button></div>`;
+}
+function spellRow(s){
+  s = s || {id: '', wrong: [], right: ''};
+  return `<div class="hrow srow" data-sid="${esc(s.id || '')}">
+    <label class="hk">Never show these spellings (comma separated)<input class="s-wrong" value="${esc((s.wrong || []).join(', '))}" placeholder="e.g. Ziemens, Simens"${dis}></label>
+    <label>Always show as<input class="s-right" value="${esc(s.right)}" placeholder="e.g. Northwind"${dis}></label>
+    <button class="x" data-sdel="1" title="Remove this fix"${dis}>&times;</button></div>`;
+}
+function secHot(){
+  return `<h2 class="sec" id="sec-hot">Hot topics <span class="cnt">${HOT_S.length} set up</span></h2><div class="box sbox">
+    <p class="hint first">Topics you want to stand out. A decision is hot when a keyword appears in the decision's own text. It is then marked with the topic name on the Decisions page. <b>Bold</b> makes it stand out; <b>grouped by meeting</b> lists that topic's decisions meeting by meeting, biggest meeting first.</p>
+    <div id="hrows">${HOT_S.map(hotRow).join('') || '<div class="hint" id="hnone">No hot topics yet.</div>'}</div>
+    <div class="fact"><button class="btn sm" id="add-hot"${dis}>+ Add a hot topic</button>
+      <button class="btn pri" id="save-hot"${dis}>Save</button>
+      <span class="hint inl">Takes effect when the page reloads. No run is started.</span></div></div>`;
+}
+function secSpelling(){
+  return `<h2 class="sec" id="sec-spell">Spelling fixes <span class="cnt">${SPELL.length} set up</span></h2><div class="box sbox">
+    <p class="hint first">For a word the notes keep getting wrong. Every spelling you list is shown as the right one in decisions, topics, titles and note text. The notes on disk are never edited.</p>
+    <div id="srows">${SPELL.map(spellRow).join('') || '<div class="hint" id="snone">No spelling fixes yet.</div>'}</div>
+    <div class="fact"><button class="btn sm" id="add-spell"${dis}>+ Add a fix</button>
+      <button class="btn pri" id="save-spell"${dis}>Save</button>
+      <span class="hint inl">Whole words only, upper or lower case. A spelling you have not listed still shows up under Needs review.</span></div></div>`;
+}
+function collectRules(){
+  const hot = [...document.querySelectorAll('.hrow[data-hid]')].map(r => {
+    const name = r.querySelector('.h-name').value.trim(), kw = r.querySelector('.h-kw').value.trim();
+    return {id: r.dataset.hid, name: name || kw.split(',')[0].trim(), keywords: kw || name,
+      bold: r.querySelector('.h-bold').checked, group: r.querySelector('.h-group').value};
+  }).filter(h => h.name);
+  const spelling = [...document.querySelectorAll('.hrow[data-sid]')].map(r => ({id: r.dataset.sid,
+    wrong: r.querySelector('.s-wrong').value, right: r.querySelector('.s-right').value.trim()})).filter(s => s.wrong.trim() && s.right);
+  return {hot_topics: hot, spelling};
+}
+
+/* ---------------------------------------------------------------- saving page changes without the server */
+function secSaving(){
+  const n = unwritten().n;
+  const st = location.protocol === 'file:' ? 'This page is opened as a file, so it cannot save anything.'
+    : !SERVER_UP ? 'The local server is not responding. Changes are kept in this browser and saved by themselves when it is back.'
+    : 'Connected to the local server. Every X, Keep fresh and setting is saved to the library files at once, and this page refreshes itself when a sync adds meetings.';
+  return `<h2 class="sec">Saving page changes</h2><div class="box sbox">
+    <p class="hint first">The X on decisions and Keep fresh on actions. Nothing to connect or copy: the server saves them and rebuilds the page data.</p>
+    <div class="hint" style="font-size:13px;color:var(--ink)">${esc(st)}${n ? ` <b>${n} waiting.</b>` : ''}</div>
+    <p class="hint">The server starts by itself when you log in (run <b>Install Auto-Start</b> in the library folder once). Bookmark ${esc(SERVER_URL)} or use <b>Meeting Library.webloc</b>.</p>
+    <div class="fact">${location.protocol === 'file:' ? `<a class="btn pri" href="${SERVER_URL}">Open the live library</a>`
+      : SERVER_UP ? '' : '<button class="btn" data-sync="retry">Try now</button>'}</div></div>`;
+}
+
 /* ---------------------------------------------------------------- the full review page */
 function renderReview(pane, tab){
   tab = ['names', 'conflicts', 'approved'].includes(tab) ? tab : 'conflicts';
@@ -314,9 +377,11 @@ function renderSettings(pane){
       <hr class="rule"></div>
     <div class="sgrid">
       <section>${secConnectors()}</section><section>${secAdd()}</section>
+      <section>${secHot()}</section><section>${secSpelling()}</section>
       <section>${secSensitive()}</section><section>${secCap()}</section>
       <section>${secReviewTop()}</section><section>${secApproved()}</section>
       <section>${secWeights()}</section><section>${secDisplay()}</section>
+      <section>${secSaving()}</section>
     </div>`;
   main.scrollTop = 0;
   let want = ''; try { want = sessionStorage.getItem('ml.scroll') || ''; sessionStorage.removeItem('ml.scroll'); } catch(e){}
@@ -361,6 +426,11 @@ document.addEventListener('click', e => {
       gemini: {enabled: val('c-gemini').checked, drive_safety_net: val('c-drive').checked,
         lookback_days: val('g-days').value, backfill_from: val('g-from').value, max_doc_kb: val('g-kb').value},
       local_files: {enabled: val('c-local').checked, max_mb: val('l-mb').value}}), 'Connector settings saved (no run started)', true);
+  if (t.id === 'add-hot'){ const n = val('hnone'); if (n) n.remove(); val('hrows').insertAdjacentHTML('beforeend', hotRow()); return; }
+  if (t.id === 'add-spell'){ const n = val('snone'); if (n) n.remove(); val('srows').insertAdjacentHTML('beforeend', spellRow()); return; }
+  if (t.dataset.hdel || t.dataset.sdel){ t.closest('.hrow').remove(); return; }
+  if (t.id === 'save-hot' || t.id === 'save-spell') return void act(t, () => mlApi('/api/settings', {decision_rules: collectRules()}),
+      t.id === 'save-hot' ? 'Hot topics saved' : 'Spelling fixes saved', t.id === 'save-hot' ? 'sec-hot' : 'sec-spell');
   if (t.id === 'save-disp') return void act(t, () => mlApi('/api/settings',
       {topic_exclude: val('d-tags').value.split(',')}), 'Saved', true);
   if (t.id === 'save-sens') return void act(t, () => mlApi('/api/settings', {sensitive: {
@@ -420,3 +490,4 @@ document.addEventListener('click', e => {
 });
 
 if (view === 'settings') render();   /* the first render ran before this file loaded */
+

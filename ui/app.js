@@ -40,6 +40,16 @@ const visible = d => !d.sensitive || showSens;
 const nSensitive = DATA.filter(d => d.sensitive).length;
 function setSens(v){ showSens = v; try { localStorage.setItem(SKEY, v ? '0' : '1'); } catch(e){} render(); }
 /* the header switch: on = sensitive content is hidden */
+const RUN_PAGE = 'https://claude.ai/code/routines';
+let RUNCFG = false;      /* true when ops/routine.json holds a routine id and token (the server says so) */
+function runButton(){
+  if (!RUNCFG) return `<a class="sens-sw run-btn" href="${RUN_PAGE}" target="_blank" rel="noopener"
+      title="Opens your scheduled tasks in Claude: press Run on the library sync"><span class="sw-ic">&#9654;</span><span class="sw-tx">Run now</span></a>`;
+  const ok = !!window.ML_SERVER && !RUNNING;
+  return `<button class="sens-sw run-btn${RUNNING ? ' on' : ''}" data-runnow="1"${ok ? '' : ' disabled'}
+      title="Ask Claude to fetch new meetings and update the library now">
+    <span class="sw-ic">&#9654;</span><span class="sw-tx">${RUNNING ? 'Running' : 'Run now'}</span></button>`;
+}
 function sensSwitch(){
   return `<button class="sens-sw${showSens ? '' : ' on'}" data-sensall="1" role="switch" aria-checked="${showSens ? 'false' : 'true'}"
       title="${showSens ? 'Hide' : 'Show'} all sensitive content (${nSensitive} meetings)"${nSensitive ? '' : ' disabled'}>
@@ -113,6 +123,17 @@ function matches(d){
   return terms.every(t => hay.includes(t));
 }
 
+let RUNNING = false;
+async function runNow(){
+  RUNNING = true; softRender();
+  try {
+    const j = await mlApi('/api/run', {});
+    toast(j.message || (j.ok ? 'Run started' : 'Could not start the run'), !j.ok);
+    if (!j.ok && j.fallback_url) go('#settings');
+    if (j.ok) setTimeout(() => { RUNNING = false; softRender(); }, 60000); else RUNNING = false;
+  } catch(err){ toast(err.message, true); RUNNING = false; }
+  softRender();
+}
 function sensBar(){
   const srv = window.ML_SERVER ? '' : ' (read-only: start the server to save settings)';
   return `<div class="sbar"><button class="sbtn${showSens ? '' : ' on'}" data-sensall="1" ${nSensitive ? '' : 'disabled'}
@@ -191,7 +212,7 @@ function renderDash(){
         <h1>${esc(TITLE)}</h1>
         <div class="pillrow">
           <span class="gp">&#128202; <b>Dashboard</b></span>
-          <span class="gp">&#128197; rebuilt ${esc(BUILT)}</span>${sensSwitch()}${L.demo ? `<span class="gp">&#9888; <b>demo data</b> &mdash; fictional people and companies</span>` : ''}
+          <span class="gp">&#128197; rebuilt ${esc(BUILT)}</span>${sensSwitch()}${runButton()}${L.demo ? `<span class="gp">&#9888; <b>demo data</b> &mdash; fictional people and companies</span>` : ''}
         </div>
       </div>${costWidget()}</div>
       <div class="stats">
@@ -202,6 +223,7 @@ function renderDash(){
       </div><hr class="rule"></div>
 
     ${capBanner()}
+    ${syncStrip()}
 
     <div class="dgrid">
       <section class="dleft">
@@ -252,46 +274,168 @@ function topicCards(){
   }).join('');
 }
 
-/* ---- decisions: grouped by theme, repeats merged, 8 rows at a time ----
-   Groups come from data/groups.json (the grouping step); x hides in this browser only;
-   sensitive ones (added by the insights layer from sensitive-tagged notes) sit behind a toggle. */
-const DKEY = 'meetinglib.hiddenDecisions';
-const decKey = d => d.id + '|' + d.text;            /* same string as engine insights.dkey */
-function hiddenSet(){ try { return new Set(JSON.parse(localStorage.getItem(DKEY) || '[]')); }
-  catch(e){ return new Set(); } }
-function saveHidden(set){ try { localStorage.setItem(DKEY, JSON.stringify([...set])); } catch(e){} }
-let allDecs = false, decQ = '';
-const openGroups = new Set();
-const GROUPS = DASH.dgroups || [];
-
-function decModel(){
-  const hidden = hiddenSet(), terms = decQ.toLowerCase().split(/\s+/).filter(Boolean);
-  const searching = terms.length > 0;
-  const inGroup = new Set(GROUPS.flatMap(g => g.items.flatMap(i => i.keys)));
-  const match = hay => terms.every(t => hay.toLowerCase().includes(t));
-  let nSens = 0;
-  const rows = [];
-  GROUPS.forEach((g, gi) => {
-    const items = g.items.filter(i => {
-      if (i.keys.every(k => hidden.has(k))) return false;
-      if (i.sensitive && !showSens){ nSens++; return false; }
-      return !searching || match(i.text + ' ' + g.title + ' ' + g.digest + ' ' +
-        i.sources.map(x => x.title + ' ' + x.day).join(' '));
-    });
-    if (items.length) rows.push({type: 'group', g, gi, items, date: g.date});
-  });
-  DASH.decisions.forEach(d => {
-    if (inGroup.has(decKey(d)) || hidden.has(decKey(d))) return;
-    if (d.sensitive && !showSens){ nSens++; return; }
-    if (searching && !match(d.text + ' ' + d.title + ' ' + d.day)) return;
-    rows.push({type: 'one', d, date: d.date});
-  });
-  rows.sort((x, y) => y.date.localeCompare(x.date) ||
-    (y.type === 'group' && y.g.key ? 1 : 0) - (x.type === 'group' && x.g.key ? 1 : 0));
-  const n = rows.reduce((a, r) => a + (r.type === 'group' ? r.items.length : 1), 0);
-  const nHid = DASH.decisions.filter(d => hidden.has(decKey(d))).length;
-  return {rows, n, nSens, nHid, searching};
+/* ---- decisions: a short box on the dashboard, the full page behind "View all" ----
+   The page groups by Topic (hot topics from Settings pinned first), by Meeting (biggest meetings
+   first) or by Theme (data/groups.json). Hot topics are highlighted in bold when their rule says so.
+   x hides a decision in this browser only; sensitive ones follow the header switch. */
+const DKEY = 'meetinglib.hiddenDecisions', GKEY = 'meetinglib.decGroup';
+const decKey = d => d.key || (d.id + '|' + d.text);   /* the raw key, same string as engine insights.dkey */
+/* the X is saved in ops/removed.json by the local server and arrives in the data as DASH.removed */
+/* ---- changes you make on the page (X, Keep fresh) ----
+   They show at once (the overlay, kept in this browser) and are sent to the local server, which writes
+   ops/removed.json and ops/keeps.json and rebuilds the data. Once the rebuilt data is loaded the overlay
+   entry is no longer needed and drops away. */
+const OKEY = 'meetinglib.overlay';
+let OV = {rem: {}, keep: {}};
+try { const o = JSON.parse(localStorage.getItem(OKEY) || '{}'); OV = {rem: o.rem || {}, keep: o.keep || {}}; } catch(e){}
+const saveOv = () => { try { localStorage.setItem(OKEY, JSON.stringify(OV)); } catch(e){} };
+(function reconcile(){
+  const base = new Set(DASH.removed || []), kb = {};
+  DASH.open.forEach(a => { kb[a.key] = a.keeps || 0; });
+  Object.keys(OV.rem).forEach(k => { if (base.has(k) === OV.rem[k].v) delete OV.rem[k]; });
+  Object.keys(OV.keep).forEach(k => { const c = OV.keep[k].count;
+    if (!(k in kb) || (c === 0 ? kb[k] === 0 : kb[k] >= c)) delete OV.keep[k]; });
+  try {   /* the old browser-only hide moves into the overlay once */
+    const old = JSON.parse(localStorage.getItem(DKEY) || '[]');
+    if (old.length){ old.forEach(k => { if (!(k in OV.rem) && !base.has(k)) OV.rem[k] = {v: true}; });
+      localStorage.removeItem(DKEY); }
+  } catch(e){}
+  saveOv();
+})();
+const hiddenSet = () => { const s = new Set(DASH.removed || []);
+  Object.entries(OV.rem).forEach(([k, e]) => e.v ? s.add(k) : s.delete(k)); return s; };
+const todayIso = () => new Date().toLocaleDateString('en-CA');
+function effAct(a){      /* an action with the overlay applied: keep count and age label */
+  const o = OV.keep[a.key]; if (!o) return a;
+  let age = a.age;
+  if (o.last) age = Math.min(age, Math.max(0, Math.round((Date.now() - new Date(o.last).getTime()) / 864e5)));
+  const pinned = o.count >= 2;
+  return {...a, keeps: o.count, pinned, tier: pinned || age <= 7 ? 'fresh' : age <= 21 ? 'check' : 'old'};
 }
+function softRender(){ const y = main.scrollTop; render(); main.scrollTop = y; }
+function setRemoved(keys, v){ keys.forEach(k => { OV.rem[k] = {v}; }); saveOv(); softRender(); flush(false); }
+function setKeep(key, reset){
+  const a = DASH.open.find(x => x.key === key); if (!a) return;
+  const cur = effAct(a).keeps;
+  OV.keep[key] = reset ? {count: 0, last: ''} : {count: cur + 1, last: todayIso()};
+  saveOv(); softRender(); flush(false);
+}
+const unwritten = () => {
+  const rem = {}, keeps = {};
+  Object.entries(OV.rem).forEach(([k, e]) => { if (!e.w) rem[k] = e.v; });
+  Object.entries(OV.keep).forEach(([k, e]) => { if (!e.w) keeps[k] = {count: e.count, last: e.last}; });
+  return {rem, keeps, n: Object.keys(rem).length + Object.keys(keeps).length};
+};
+function markWritten(p){
+  Object.keys(p.rem).forEach(k => { if (OV.rem[k]) OV.rem[k].w = true; });
+  Object.keys(p.keeps).forEach(k => { if (OV.keep[k]) OV.keep[k].w = true; });
+  saveOv();
+}
+/* ---- saving: the local server is the one way (no folder connect, no downloads, no copy-paste) ----
+   The server starts by itself at login (Install Auto-Start.command) at one fixed address and rebuilds the
+   page data after every change. A page opened as a file jumps to that address, taking any waiting changes
+   along. If the server is down, changes wait in this browser and are sent by themselves when it is back.
+   The page also watches the library: when a sync adds meetings it refreshes itself. */
+const SERVER_URL = 'http://127.0.0.1:8765/';
+let SERVER_UP = !!window.ML_SERVER, BUILD = null, NEWDATA = false, lastState = '';
+async function ping(){
+  try { const r = await fetch('/api/ping', {cache: 'no-store'}); const j = await r.json(); SERVER_UP = true; RUNCFG = !!j.run; return j; }
+  catch(e){ SERVER_UP = false; return null; }
+}
+let flushing = false;
+async function flush(){
+  if (flushing || !window.ML_SERVER) return 'queued';
+  const p = unwritten(); if (!p.n) return 'none';
+  flushing = true; let how = 'error';
+  try {
+    await mlApi('/api/overlay', {removed: p.rem, keeps: p.keeps});
+    markWritten(p); how = 'server'; SERVER_UP = true;
+    const j = await ping(); if (j) BUILD = j.build;      /* our own rebuild: the overlay already shows it */
+  } catch(err){
+    console.warn('save failed', err);
+    if (/token/i.test(err.message || '')) return void location.reload();
+    SERVER_UP = false;
+  }
+  flushing = false; return how;
+}
+async function watch(){
+  if (!window.ML_SERVER) return;
+  const j = await ping();
+  if (j){
+    if (BUILD === null) BUILD = j.build;
+    else if (j.build !== BUILD){
+      if (view === 'settings') NEWDATA = true;           /* do not pull the page away from a form */
+      else return void location.reload();
+    }
+    if (unwritten().n) await flush();
+  }
+  const st = [SERVER_UP, unwritten().n, NEWDATA, RUNCFG].join();
+  if (st !== lastState){ lastState = st;
+    const ae = document.activeElement;
+    if (!(view === 'settings' && ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))) softRender(); }
+}
+async function jumpToServer(){      /* a page opened as a file cannot save: go to the server if it is running */
+  try { await fetch(SERVER_URL + 'api/ping', {mode: 'no-cors', cache: 'no-store'}); } catch(e){ return; }
+  const p = unwritten(); let q = '';
+  if (p.n){
+    try { const c = btoa(unescape(encodeURIComponent(JSON.stringify({rem: p.rem, keeps: p.keeps}))));
+      if (c.length < 100000){ q = '?carry=' + encodeURIComponent(c); markWritten(p); } } catch(e){}
+  }
+  location.replace(SERVER_URL + q + location.hash);
+}
+function adoptCarry(){              /* changes that were waiting in the file-opened page arrive in the address */
+  const c = new URLSearchParams(location.search).get('carry'); if (!c) return;
+  try {
+    const o = JSON.parse(decodeURIComponent(escape(atob(c))));
+    Object.entries(o.rem || {}).forEach(([k, v]) => { if (!(k in OV.rem)) OV.rem[k] = {v: !!v}; });
+    Object.entries(o.keeps || {}).forEach(([k, e]) => { if (!(k in OV.keep)) OV.keep[k] = {count: e.count, last: e.last}; });
+    saveOv();
+  } catch(e){}
+  history.replaceState(null, '', location.pathname + location.hash);
+}
+async function syncAction(act){
+  if (act === 'reload') return void location.reload();
+  if (act === 'retry'){ lastState = ''; await watch(); }
+  softRender();
+}
+/* the strip shown when the page cannot save right now */
+function syncStrip(){
+  const n = unwritten().n, w = n + ' change' + (n > 1 ? 's' : '');
+  if (location.protocol === 'file:')
+    return `<div class="sstrip"><span>This page is opened as a file, so it cannot save${n ? ` (<b>${w}</b> waiting)` : ''}. Open it through the local server.</span><a class="btn sm" href="${SERVER_URL}">Open the live library</a></div>`;
+  if (!window.ML_SERVER) return '';
+  if (NEWDATA) return `<div class="sstrip"><span>The library was updated while you were here.</span><button class="btn sm" data-sync="reload">Refresh</button></div>`;
+  if (!SERVER_UP) return `<div class="sstrip"><span>The local server is not responding.${n ? ` <b>${w}</b> kept in this browser and saved by themselves when it is back.` : ' Reading works; changes will be kept until it is back.'}</span><button class="btn sm" data-sync="retry">Try now</button></div>`;
+  return '';
+}
+window.addEventListener('load', async () => {
+  if (location.protocol === 'file:'){ await jumpToServer(); softRender(); return; }
+  if (window.ML_SERVER){
+    adoptCarry();
+    const j = await ping(); if (j) BUILD = j.build;
+    await flush(); softRender(); setInterval(watch, 5000);
+  }
+});
+let decGroup = 'topic'; try { decGroup = localStorage.getItem(GKEY) || 'topic'; } catch(e){}
+let decQ = '', hotOnly = false, decN = 0;
+const openGroups = new Set(), shut = new Set();
+const GROUPS = DASH.dgroups || [];
+const HOT = ((L.settings || {}).hot_topics || []).filter(h => (h.keywords || []).length);
+const reEsc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const hotRx = h => new RegExp('(?:^|[^a-z0-9])(?:' + h.keywords.map(reEsc).join('|') + ')', 'i');
+HOT.forEach(h => { h.rx = hotRx(h); });
+const mimp = id => (DASH.mimp || {})[id] || {score: 0, level: 'low', why: []};
+const MLAB = {high: 'big meeting', medium: 'medium meeting', low: 'small meeting'};
+const TSCORE = Object.fromEntries((DASH.topics || []).map(t => [t.tag, t.score]));
+/* a decision is hot when a keyword shows in the decision's own text (not the meeting title or tags) */
+function hotsOf(text){
+  return HOT.filter(h => h.rx.test(text));
+}
+function hotCount(h){   /* used by Settings: how many decisions a rule catches right now */
+  const rx = h.rx || hotRx(h);
+  return DASH.decisions.filter(d => rx.test(d.text)).length;
+}
+
 function tagFor(x){
   return x.source === 'claude'
     ? ` <span class="dtag${x.importance >= 3 ? ' key' : ''}" title="${esc(x.evidence || 'Added by the insights layer')}">${
@@ -300,90 +444,261 @@ function tagFor(x){
 function srcLine(sources){
   return '&mdash; ' + sources.map(s => `${esc(s.title)}, ${esc(s.day)}`).join(' &middot; ');
 }
-function delBtn(keys, title){
+function delBtn(keys, title, removed){
+  if (removed) return `<button class="put" data-putkeys="${esc(JSON.stringify(keys))}" title="Put it back on the quick list">put back</button>`;
   return `<button class="dx" data-delkeys="${esc(JSON.stringify(keys))}" title="${esc(title)}">&times;</button>`;
 }
-function decRow(r, searching){
-  if (r.type === 'one'){
-    const d = r.d;
-    return `<div class="ditem" data-id="${esc(d.id)}">
-      <span class="tx">${d.sensitive ? LOCK + ' ' : ''}${inl(d.text)}${tagFor(d)} <span class="src">${srcLine([d])}</span></span>
-      ${delBtn([decKey(d)], 'Hide: not interested or obsolete')}</div>`;
-  }
-  const open = searching || openGroups.has(r.gi), g = r.g;
-  const meetings = new Set(r.items.flatMap(i => i.sources.map(s => s.id))).size;
-  return `<div class="dgrp${open ? ' open' : ''}">
-    <div class="dgh" data-gtoggle="${r.gi}">
-      <span class="chev">${open ? '&#9662;' : '&#9656;'}</span>
-      <span class="gt">${r.items.every(i => i.sensitive) ? LOCK + ' ' : ''}${esc(g.title)}</span>${g.key ? ' <span class="dtag key">key</span>' : ''}${
-        g.note ? ' <span class="gwarn" title="' + esc(g.note) + '">&#9888;</span>' : ''}
-      <span class="gcount">${r.items.length} decision${r.items.length > 1 ? 's' : ''}${
-        meetings > 1 ? ' &middot; ' + meetings + ' meetings' : ''}</span>
-      ${delBtn(r.items.flatMap(i => i.keys), 'Hide this whole group')}
-    </div>
-    ${g.digest ? `<div class="gdig">${esc(g.digest)}</div>` : ''}
-    ${open ? `<div class="gitems">${r.items.map(i => `<div class="ditem gi" data-id="${esc(i.sources[0].id)}">
-        <span class="tx">${i.sensitive ? LOCK + ' ' : ''}${inl(i.text)}${tagFor(i)} <span class="src">${srcLine(i.sources)}</span></span>
-        ${delBtn(i.keys, 'Hide this decision')}</div>`).join('')}
-      ${g.note ? `<div class="gnote">&#9888; ${esc(g.note)}</div>` : ''}</div>` : ''}</div>`;
+/* bookkeeping the notes put in the sentence, shown as small markers with the original wording on hover */
+function flagTags(f){
+  f = f || {}; let out = '';
+  if ('gemini' in f) out += ` <span class="ftag gem" title="${esc("Added from Gemini's notes" + (f.gemini ? ': ' + f.gemini : ''))}">Gemini</span>`;
+  if (f.inferred) out += ' <span class="ftag inf" title="Inferred from the meeting details, not stated outright. Check before relying on it.">inferred</span>';
+  return out;
 }
-function decBody(){
-  const {rows, nSens, searching} = decModel();
-  if (!rows.length) return `<div class="none">${searching ? 'No decision matches.' : 'None recorded yet.'}</div>` + decFoot(nSens, 0, searching);
-  const shown = (allDecs || searching) ? rows : rows.slice(0, 8);
-  return `<div class="dlist">${shown.map(r => decRow(r, searching)).join('')}</div>` +
-    decFoot(nSens, rows.length, searching);
+const hotChips = hots => hots.map(h => `<span class="hchip" title="Hot topic">${esc(h.name)}</span>`).join('');
+const mBadge = m => m.level === 'low' ? '' :
+  `<span class="mi mi-${m.level}" title="${esc('Meeting score ' + m.score + ' of 100: ' + m.why.join(', '))}">${MLAB[m.level]}</span>`;
+
+/* every visible decision once, with what the views need */
+function allItems(searchOn, withRemoved){
+  const hidden = hiddenSet(), out = [];
+  const terms = searchOn ? decQ.toLowerCase().split(/\s+/).filter(Boolean) : [];
+  let nSens = 0, nHid = 0;
+  DASH.decisions.forEach(d => {
+    const gone = hidden.has(decKey(d));
+    if (gone){ nHid++; if (!withRemoved) return; }
+    if (d.sensitive && !showSens){ nSens++; return; }
+    const e = byId[d.id] || {}, hots = hotsOf(d.text);
+    const it = {keys: [decKey(d)], text: d.text, id: d.id, title: d.title, day: d.day, date: d.date,
+      source: d.source, importance: d.importance || 0, sensitive: d.sensitive, evidence: d.evidence || '', flags: d.flags || {},
+      sources: [{id: d.id, title: d.title, day: d.day}], hots, bold: hots.some(h => h.bold),
+      m: mimp(d.id), tags: e.tags || [], removed: gone};
+    const hay = (d.text + ' ' + d.title + ' ' + d.day + ' ' + hots.map(h => h.name).join(' ')).toLowerCase();
+    if (terms.every(t => hay.includes(t))) out.push(it);
+  });
+  return {items: out, nSens, nHid};
 }
-function decFoot(nSens, total, searching){
-  const more = !searching && total > 8
-    ? `<button class="more" data-decs="1">${allDecs ? '&minus; show fewer' : '+ view the other ' + (total - 8)}</button>` : '';
-  const sens = (nSens || showSens)
-    ? `<button class="more" data-sensall="1">${showSens ? 'hide sensitive' : 'show sensitive (' + nSens + ' hidden)'}</button>` : '';
-  return (more || sens) ? `<div class="dfoot">${more}${sens}</div>` : '';
+const rank = (a, b) => (b.importance >= 3) - (a.importance >= 3) || b.date.localeCompare(a.date);
+
+/* ---- the dashboard box: a handful, best first ---- */
+function topScore(it){
+  const age = Math.max(0, (Date.now() - new Date(it.date).getTime()) / 864e5) || 0;
+  return (it.hots.length ? 40 : 0) + (it.importance >= 3 ? 20 : 0) + it.m.score * 0.3 + Math.max(0, 30 - age * 2);
 }
-function decCount(){
-  const {n, searching} = decModel();
-  return searching ? `${n} found` : `${n} decisions`;
+function rowCompact(it){
+  return `<div class="ditem dc${it.bold ? ' hot' : ''}" data-id="${esc(it.id)}">
+    <span class="tx"><span class="dt">${it.sensitive ? LOCK + ' ' : ''}${inl(it.text)}</span>${tagFor(it)}${flagTags(it.flags)}
+      <span class="dm">${esc(it.title)} &middot; ${esc(it.day)}${hotChips(it.hots)}${mBadge(it.m)}</span></span>
+    ${delBtn(it.keys, 'Remove from the quick list', it.removed)}</div>`;
 }
 function decisionsBox(){
-  const {n, nHid, nSens} = decModel();
   if (!DASH.decisions.length)
     return `<h2 class="sec">Decisions</h2><div class="hint">None recorded yet.</div>`;
+  const {items, nSens} = allItems(false);
+  const top = items.slice().sort((a, b) => topScore(b) - topScore(a)).slice(0, 6);
   return `<h2 class="sec">Decisions</h2>
     <div class="box">
-      <div class="bhead"><span class="bt">All meetings</span>
-        <span class="bn" id="dcount">${decCount()}</span>
-        <input id="dq" class="dsearch" placeholder="Search decisions&hellip;" value="${esc(decQ)}" autocomplete="off">${nHid
-          ? `<a class="restore" href="#" data-restoredec="1">restore ${nHid}</a>` : ''}</div>
-      <div id="dbody">${decBody()}</div>
-    </div>`;
+      <div class="bhead"><span class="bt">Top decisions</span>
+        <span class="bn">${items.length} in total</span>
+        <a class="vall" href="#decisions">View all &rarr;</a></div>
+      <div class="dlist">${top.map(rowCompact).join('') || '<div class="none">Nothing to show.</div>'}</div>
+      <div class="dfoot"><button class="more" data-hash="#decisions">View all ${items.length} decisions &rarr;</button>${
+        nSens ? `<button class="more" data-sensall="1">show sensitive (${nSens} hidden)</button>` : ''}</div>
+    </div>
+    <div class="hint">Hot topics, key decisions, bigger meetings and recent ones come first.</div>`;
+}
+
+/* ---- the decisions page ---- */
+function rowFull(it, o){
+  o = o || {};
+  return `<div class="ditem${it.bold ? ' hot' : ''}${it.removed ? ' rm' : ''}" data-id="${esc(it.id)}">
+    <span class="tx">${it.sensitive ? LOCK + ' ' : ''}<span class="dt">${inl(it.text)}</span>${tagFor(it)}${flagTags(it.flags)}${
+      o.noHot ? '' : hotChips(it.hots)}${o.noSrc ? '' : ` <span class="src">${srcLine(it.sources)}</span>`}</span>
+    ${delBtn(it.keys, 'Remove from the quick list', it.removed)}</div>`;
+}
+function byMeeting(items){
+  const m = new Map();
+  items.forEach(it => { if (!m.has(it.id)) m.set(it.id, []); m.get(it.id).push(it); });
+  return [...m.entries()].map(([id, list]) => ({id, list: list.sort(rank), m: mimp(id), date: list[0].date}))
+    .sort((a, b) => b.m.score - a.m.score || b.date.localeCompare(a.date));
+}
+function meetingHead(b){
+  const e = byId[b.id] || {}, f = b.list[0];
+  return `<div class="mh" data-id="${esc(b.id)}"><span class="mt">${e.sensitive ? LOCK + ' ' : ''}${esc(e.title || f.title)}</span>
+    <span class="mm">${esc(e.day || f.day)}${e.type ? ' &middot; ' + esc(e.type) : ''}</span>${mBadge(b.m)}
+    <span class="gcount">${b.list.length} decision${b.list.length > 1 ? 's' : ''}</span></div>`;
+}
+const meetingBlocks = items => byMeeting(items).map(b =>
+  `<div class="mblock">${meetingHead(b)}<div class="mitems">${b.list.map(it => rowFull(it, {noSrc: true})).join('')}</div></div>`).join('');
+
+function section(key, title, badges, list, inner){
+  const open = !shut.has(key), mt = new Set(list.map(i => i.id)).size;
+  return `<div class="dsec${open ? ' open' : ''}">
+    <div class="dsh" data-sec="${esc(key)}"><span class="chev">${open ? '&#9662;' : '&#9656;'}</span>
+      <span class="gt">${esc(title)}</span>${badges || ''}
+      <span class="gcount">${list.length} decision${list.length > 1 ? 's' : ''}${mt > 1 ? ' &middot; ' + mt + ' meetings' : ''}</span></div>
+    ${open ? `<div class="dsb">${inner}</div>` : ''}</div>`;
+}
+function mainTopic(it){
+  return (it.tags || []).filter(t => TSCORE[t] != null).sort((a, b) => TSCORE[b] - TSCORE[a])[0] || '';
+}
+function viewTopic(items){
+  const used = new Set(), out = [];
+  HOT.forEach(h => {
+    const list = items.filter(it => !used.has(it) && it.hots.includes(h));
+    list.forEach(it => used.add(it));
+    if (!list.length) return;
+    const meet = h.group === 'meeting';
+    out.push(section('hot:' + h.id, h.name,
+      `<span class="hchip">hot</span>${meet ? '<span class="gmode">by meeting</span>' : ''}`, list,
+      meet ? meetingBlocks(list) : list.slice().sort(rank).map(it => rowFull(it, {noHot: true})).join('')));
+  });
+  if (!hotOnly){
+    const rest = {};
+    items.filter(it => !used.has(it)).forEach(it => { const t = mainTopic(it); (rest[t] = rest[t] || []).push(it); });
+    Object.keys(rest).filter(Boolean).sort((a, b) => TSCORE[b] - TSCORE[a]).forEach(t =>
+      out.push(section('t:' + t, t.replace(/-/g, ' '), '', rest[t], rest[t].slice().sort(rank).map(it => rowFull(it)).join(''))));
+    if (rest['']) out.push(section('t:', 'Other', '', rest[''], rest[''].slice().sort(rank).map(it => rowFull(it)).join('')));
+  }
+  return out.join('');
+}
+function viewMeeting(items){
+  return `<div class="mview">${byMeeting(items).map(b =>
+    `<div class="mblock">${meetingHead(b)}<div class="mitems">${b.list.map(it => rowFull(it, {noSrc: true})).join('')}</div></div>`).join('')}</div>`;
+}
+function viewTheme(){
+  const {items} = allItems(false, true), byKey = new Map(items.map(it => [it.keys[0], it]));
+  const terms = decQ.toLowerCase().split(/\s+/).filter(Boolean);
+  const used = new Set(), rows = [];
+  const hit = hay => terms.every(t => hay.toLowerCase().includes(t));
+  GROUPS.forEach((g, gi) => {
+    const gits = [];
+    g.items.forEach(i => {
+      const ks = i.keys.filter(k => byKey.has(k)); if (!ks.length) return;
+      ks.forEach(k => used.add(byKey.get(k)));
+      const base = byKey.get(ks[0]), hots = hotsOf(i.text);
+      gits.push({...base, keys: i.keys, text: i.text, sources: i.sources, source: i.source, importance: i.importance,
+        sensitive: i.sensitive, evidence: i.evidence, flags: i.flags || {}, hots, bold: hots.some(h => h.bold), removed: i.keys.every(k => hiddenSet().has(k))});
+    });
+    const shown = gits.filter(i => (!hotOnly || i.hots.length) &&
+      (!terms.length || hit(i.text + ' ' + g.title + ' ' + g.digest + ' ' + i.sources.map(s => s.title + ' ' + s.day).join(' '))));
+    if (shown.length) rows.push({g, gi, items: shown, date: g.date, key: g.key});
+  });
+  items.filter(it => !used.has(it)).forEach(it => {
+    if ((hotOnly && !it.hots.length) || (terms.length && !hit(it.text + ' ' + it.title + ' ' + it.day))) return;
+    rows.push({one: it, date: it.date});
+  });
+  rows.sort((a, b) => b.date.localeCompare(a.date) || (b.key ? 1 : 0) - (a.key ? 1 : 0));
+  decN = rows.reduce((n, r) => n + (r.one ? 1 : r.items.length), 0);
+  return rows.map(r => {
+    if (r.one) return `<div class="dlist">${rowFull(r.one)}</div>`;
+    const g = r.g, open = terms.length || openGroups.has(r.gi), meetings = new Set(r.items.flatMap(i => i.sources.map(s => s.id))).size;
+    return `<div class="dgrp${open ? ' open' : ''}">
+      <div class="dgh" data-gtoggle="${r.gi}"><span class="chev">${open ? '&#9662;' : '&#9656;'}</span>
+        <span class="gt">${r.items.every(i => i.sensitive) ? LOCK + ' ' : ''}${esc(g.title)}</span>${g.key ? ' <span class="dtag key">key</span>' : ''}${
+          g.note ? ' <span class="gwarn" title="' + esc(g.note) + '">&#9888;</span>' : ''}
+        <span class="gcount">${r.items.length} decision${r.items.length > 1 ? 's' : ''}${meetings > 1 ? ' &middot; ' + meetings + ' meetings' : ''}</span>
+        ${delBtn(r.items.flatMap(i => i.keys), 'Remove this whole group from the quick list', r.items.every(i => i.removed))}</div>
+      ${g.digest ? `<div class="gdig">${esc(g.digest)}</div>` : ''}
+      ${open ? `<div class="gitems">${r.items.map(i => rowFull(i)).join('')}
+        ${g.note ? `<div class="gnote">&#9888; ${esc(g.note)}</div>` : ''}</div>` : ''}</div>`;
+  }).join('');
+}
+function decBody(){
+  const {items, nSens} = allItems(true, true);
+  const list = hotOnly ? items.filter(it => it.hots.length) : items;
+  let html;
+  if (decGroup === 'theme') html = viewTheme();
+  else { decN = list.length; html = !list.length ? '' : decGroup === 'meeting' ? viewMeeting(list) : viewTopic(list); }
+  if (!decN) html = `<div class="none">${decQ || hotOnly ? 'No decision matches.' : 'None recorded yet.'}</div>`;
+  return html + ((nSens || !showSens)
+    ? `<div class="dfoot"><button class="more" data-sensall="1">${showSens ? 'hide sensitive' : 'show sensitive (' + nSens + ' hidden)'}</button></div>` : '');
+}
+const DESC = {
+  topic: 'Hot topics from Settings come first, then every other decision under the main topic of its meeting. Removed decisions stay here, greyed, with a put back button.',
+  meeting: 'One block per meeting, the biggest meetings first (score from attendees, meeting type, decisions).',
+  theme: 'Decisions about the same subject, merged across meetings, as worked out by the grouping step.'};
+function refreshDec(){
+  const b = document.getElementById('dbody'); if (!b) return;
+  b.innerHTML = decBody();
+  const c = document.getElementById('dcount');
+  if (c) c.textContent = decQ ? decN + ' found' : decN + ' decisions';
+}
+function renderDecisions(pane){
+  const {nHid} = allItems(false, true);
+  const body = decBody();
+  pane.innerHTML = `<div class="topbar"><button class="bk" data-clear="1">&larr; Dashboard</button>
+      <div class="bcrumb">decisions</div><div class="nav"></div></div>
+    ${syncStrip()}
+    <div class="mhead"><h1>Decisions</h1>
+      <div class="dctl">
+        <div class="seg" role="group" aria-label="Group by"><span class="seglab">Group by</span>${
+          [['topic', 'Topic'], ['meeting', 'Meeting'], ['theme', 'Theme']].map(([k, l]) =>
+            `<button class="${decGroup === k ? 'on' : ''}" data-dgroup="${k}">${l}</button>`).join('')}</div>
+        ${HOT.length ? `<button class="chip${hotOnly ? ' on' : ''}" data-honly="1" title="Only decisions whose own text contains a hot topic keyword">Hot topics only</button>` : ''}
+        <button class="chip" data-hash="#settings" title="Add or change hot topics in Settings">Hot topics &rarr; Settings</button>
+        <input id="dq" class="dsearch" placeholder="Search decisions&hellip;" value="${esc(decQ)}" autocomplete="off">
+        ${nHid ? `<a class="restore" href="#" data-restoredec="1">put back all ${nHid} removed</a>` : ''}
+      </div>
+      <div class="hint">${DESC[decGroup]}</div><hr class="rule"></div>
+    <div class="box dbox"><div class="bhead"><span class="bt">All meetings</span>
+      <span class="bn" id="dcount">${decQ ? decN + ' found' : decN + ' decisions'}</span></div>
+      <div id="dbody">${body}</div></div>`;
+  main.scrollTop = 0;
 }
 
 /* ---- open actions: one boxed section, filterable, 10 at a time ---- */
+let showOld = false;
+const TLAB = {fresh: 'Fresh', check: 'Check in', old: 'Probably done'};
+function actRow(a){
+  const canKeep = !a.pinned && (a.tier !== 'fresh' || a.keeps > 0);
+  return `<div class="oitem ${a.tier}" data-id="${esc(a.id)}">
+    <span class="bx">&#9744;</span><span class="tx">${a.sensitive ? LOCK + ' ' : ''}${inl(a.what)}</span>
+    <span class="ometa">${!a.owner ? '<span class="atag un" title="No owner was named in the meeting">unassigned</span>' : ''}${flagTags(a.flags)}${!actOwner && a.owner ? `<span class="oown">${esc(a.owner.split(' ')[0])}</span>` : ''}
+    <span class="atag ${a.tier}" title="Fresh: up to 7 days. Check in: 8 to 21 days. Probably done: older.">${TLAB[a.tier]}</span>
+    ${a.pinned ? '<span class="atag pin" title="Kept fresh twice: stays fresh">pinned</span>'
+      : a.keeps ? `<span class="atag kept">kept ${a.keeps}x</span>` : ''}
+    ${canKeep ? `<button class="kbtn" data-keep="${esc(a.key)}" title="Restart the clock. Press twice to keep it fresh for good.">Keep fresh</button>` : ''}
+    ${a.keeps ? `<button class="kbtn undo" data-keep="${esc(a.key)}" data-reset="1" title="Forget the keep presses">reset</button>` : ''}
+    <span class="src" title="${esc(a.title)}">${esc(a.title)} &middot; ${esc(a.day)}</span></span></div>`;
+}
+let actTab = 'all'; try { actTab = localStorage.getItem('meetinglib.actTab') || 'all'; } catch(e){}
+const ME = L.owner || '';
+const TABS = [['all', 'All'], ['mine', 'Mine'], ['others', 'Waiting on others'], ['none', 'Unassigned']];
+const tabOf = a => !a.owner ? 'none' : a.owner === ME ? 'mine' : 'others';
 function openActions(){
-  const all = DASH.open.filter(visible);
-  if (!all.length)
+  const rk = {fresh: 0, check: 1, old: 2};
+  const every = DASH.open.map(effAct).sort((x, y) => rk[x.tier] - rk[y.tier]).filter(visible);
+  if (!every.length)
     return `<h2 class="sec">Open actions</h2><div class="hint">Nothing outstanding.</div>`;
+  const tabs = ME ? TABS : [['all', 'All']];
+  if (!tabs.some(t => t[0] === actTab)) actTab = 'all';
+  const inTab = actTab === 'all' ? every : every.filter(a => tabOf(a) === actTab);
+  const live = inTab.filter(a => a.tier !== 'old'), old = inTab.filter(a => a.tier === 'old');
+  const nLive = k => every.filter(a => a.tier !== 'old' && (k === 'all' || tabOf(a) === k)).length;
   const cnt = {};
-  all.forEach(a => { const k = a.owner || 'Unassigned'; cnt[k] = (cnt[k] || 0) + 1; });
-  const owners = Object.entries(cnt).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  live.forEach(a => { const k = a.owner || 'Unassigned'; cnt[k] = (cnt[k] || 0) + 1; });
+  const chips = actTab === 'all' || actTab === 'others';
+  const owners = !chips ? [] : Object.entries(cnt).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, 5).map(([owner, n]) => ({owner, items: {length: n}}));
-  const list = actOwner ? all.filter(a => (a.owner || 'Unassigned') === actOwner) : all;
+  const byO = l => chips && actOwner ? l.filter(a => (a.owner || 'Unassigned') === actOwner) : l;
+  const list = byO(live), oldList = byO(old);
   const shown = allActs ? list : list.slice(0, 10);
+  const title = chips && actOwner ? actOwner : (tabs.find(t => t[0] === actTab) || [0, 'All'])[1];
   return `<h2 class="sec">Open actions</h2>
     <div class="box">
-      <div class="bhead"><span class="bt">${actOwner ? esc(actOwner) : 'Everyone'}</span>
+      <div class="atabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" class="${actTab === k ? 'on' : ''}" data-atab="${k}">${l} <i>${nLive(k)}</i></button>`).join('')}</div>
+      <div class="bhead"><span class="bt">${esc(title)}</span>
         <span class="bn">${list.length} open</span>
         <div class="bfil">${owners.map(o => `<button class="of${
           actOwner === o.owner ? ' on' : ''}" data-owner="${esc(o.owner)}"
           >${esc(o.owner.split(' ')[0])} ${o.items.length}</button>`).join('')}</div>
       </div>
-      <div class="olist">${shown.map(a => `<div class="oitem" data-id="${esc(a.id)}">
-        <span class="bx">&#9744;</span><span class="tx">${a.sensitive ? LOCK + ' ' : ''}${inl(a.what)}</span>
-        ${!actOwner && a.owner ? `<span class="oown">${esc(a.owner.split(' ')[0])}</span>` : ''}
-        <span class="src">${esc(a.day)}</span></div>`).join('')}</div>
+      <div class="olist">${shown.map(actRow).join('') || '<div class="none">Nothing here.</div>'}</div>
       ${list.length > 10 ? `<button class="more" data-acts="1">${allActs
         ? '&minus; show fewer' : '+ view the other ' + (list.length - 10)}</button>` : ''}
+      ${oldList.length ? `<button class="more" data-old="1">${showOld ? '&minus; hide' : '+ show'} probably done (${oldList.length})</button>
+        ${showOld ? `<div class="olist">${oldList.map(actRow).join('')}</div>` : ''}` : ''}
     </div>`;
 }
 
@@ -450,8 +765,10 @@ function capBanner(){
 
 function renderPane(){
   /* the dashboard gets the wide two-column canvas; every other view keeps the reading width */
-  pane.classList.toggle('wide', !(selected && byId[selected]) && !q.value && !facet && view !== 'settings');
-  pane.classList.toggle('swide', view === 'settings');
+  pane.classList.toggle('wide', !(selected && byId[selected]) && !q.value && !facet && !view);
+  pane.classList.toggle('swide', view === 'settings' || view === 'decisions');
+  pane.classList.toggle('dpage', view === 'decisions');
+  if (view === 'decisions') return renderDecisions(pane);
   if (view === 'settings' && typeof renderSettings === 'function') return renderSettings(pane);
   if (selected && byId[selected]) return renderDetail(byId[selected]);
   if (!q.value && !facet) return renderDash();
@@ -491,6 +808,7 @@ function applyHash(){
   const h = decodeURIComponent(location.hash.slice(1));
   selected = facet = null; view = null;
   if (h === 'settings' || h.startsWith('settings/')) { view = 'settings'; q.value = ''; }
+  else if (h === 'decisions') { view = 'decisions'; q.value = ''; }
   else if (h.startsWith('n/') && byId[h.slice(2)]) selected = h.slice(2);
   else if (h.startsWith('p/')) { facet = h.slice(2); q.value = ''; }
   render();
@@ -516,20 +834,35 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-clear]')){ e.preventDefault();
     q.value = ''; go(''); return; }
   const dd = e.target.closest('[data-delkeys]');
-  if (dd){ e.preventDefault(); e.stopPropagation(); const h = hiddenSet();
-    try { JSON.parse(dd.dataset.delkeys).forEach(k => h.add(k)); } catch(err){}
-    saveHidden(h); render(); return; }
+  if (dd){ e.preventDefault(); e.stopPropagation();
+    try { setRemoved(JSON.parse(dd.dataset.delkeys), true); } catch(err){} return; }
+  const pk = e.target.closest('[data-putkeys]');
+  if (pk){ e.preventDefault(); e.stopPropagation();
+    try { setRemoved(JSON.parse(pk.dataset.putkeys), false); } catch(err){} return; }
   const gt = e.target.closest('[data-gtoggle]');
   if (gt){ const i = +gt.dataset.gtoggle;
     openGroups.has(i) ? openGroups.delete(i) : openGroups.add(i);
-    document.getElementById('dbody').innerHTML = decBody(); return; }
+    refreshDec(); return; }
   if (e.target.closest('[data-sensall]')){ setSens(!showSens); return; }
   if (e.target.closest('[data-settings]')){ go(view === 'settings' ? '' : '#settings'); return; }
   const ms = e.target.closest('[data-marksens]');
   if (ms){ e.preventDefault(); markSensitive(ms.dataset.marksens, ms.dataset.val === '1'); return; }
-  if (e.target.closest('[data-restoredec]')){ e.preventDefault(); saveHidden(new Set()); render(); return; }
-  const dg = e.target.closest('[data-decs]');
-  if (dg){ allDecs = !allDecs; document.getElementById('dbody').innerHTML = decBody(); return; }
+  if (e.target.closest('[data-restoredec]')){ e.preventDefault(); setRemoved([...hiddenSet()], false); return; }
+  const at = e.target.closest('[data-atab]');
+  if (at){ actTab = at.dataset.atab; actOwner = null; allActs = false; try { localStorage.setItem('meetinglib.actTab', actTab); } catch(err){} softRender(); return; }
+  const kp = e.target.closest('[data-keep]');
+  if (kp){ e.preventDefault(); e.stopPropagation(); setKeep(kp.dataset.keep, !!kp.dataset.reset); return; }
+  if (e.target.closest('[data-runnow]')){ e.preventDefault(); runNow(); return; }
+  const sy = e.target.closest('[data-sync]');
+  if (sy){ e.preventDefault(); e.stopPropagation(); syncAction(sy.dataset.sync); return; }
+  if (e.target.closest('[data-old]')){ showOld = !showOld; render(); return; }
+  const hh = e.target.closest('[data-hash]');
+  if (hh && view !== 'settings'){ e.preventDefault(); go(hh.dataset.hash); return; }
+  const dgr = e.target.closest('[data-dgroup]');
+  if (dgr){ decGroup = dgr.dataset.dgroup; try { localStorage.setItem(GKEY, decGroup); } catch(err){} render(); return; }
+  if (e.target.closest('[data-honly]')){ hotOnly = !hotOnly; render(); return; }
+  const sc = e.target.closest('[data-sec]');
+  if (sc){ const k = sc.dataset.sec; shut.has(k) ? shut.delete(k) : shut.add(k); refreshDec(); return; }
   const ag = e.target.closest('[data-acts]');
   if (ag){ allActs = !allActs; render(); return; }
   const ow = e.target.closest('[data-owner]');
@@ -547,8 +880,7 @@ document.addEventListener('click', e => {
 document.addEventListener('input', e => {       /* search the Decisions box without a full re-render */
   if (e.target.id !== 'dq') return;
   decQ = e.target.value;
-  document.getElementById('dbody').innerHTML = decBody();
-  document.getElementById('dcount').textContent = decCount();
+  refreshDec();
 });
 document.getElementById('menu').onclick = () => side.classList.toggle('open');
 q.oninput = () => {                   /* typing leaves the current view, no history spam */

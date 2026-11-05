@@ -353,7 +353,7 @@ html[data-theme=dark] .capban .cbsub{color:#c98b7b}
 .sicon{vertical-align:-2px;color:#a4571a;opacity:.5;flex:none}
 .row.sens .av{opacity:.8}
 .row.sens .rtitle{display:flex;align-items:center;gap:5px}
-.sbar{display:flex;gap:6px;margin-top:9px}
+.sbar{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
 .sbtn{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1px solid var(--line);
  background:var(--chip);color:var(--mute);border-radius:8px;padding:5px 8px;font:inherit;font-size:12px;cursor:pointer}
 .sbtn:hover{color:var(--ink);border-color:var(--accent)}
@@ -462,3 +462,97 @@ details.nice>summary{cursor:pointer;list-style:none}details.nice>summary::-webki
 .wrow.th{border-top:1px solid var(--line);padding-top:10px;margin-top:10px;font-weight:600}
 
 .pr.parked{background:var(--chip);color:var(--faint)}
+
+
+/* ---------- decisions: dashboard box, page, hot topics ---------- */
+.vall{margin-left:auto;font-size:12px;color:var(--accent);text-decoration:none}
+.vall:hover{text-decoration:underline}
+.dlist .ditem.dc{padding:10px 0}
+.ditem .dt{color:var(--ink)}
+.ditem.hot .dt{font-weight:680}
+.ditem .dm{display:block;margin-top:2px;font-size:11.8px;color:var(--faint);line-height:1.6}
+.hchip{display:inline-block;margin-left:6px;font-size:10.5px;font-weight:600;letter-spacing:.02em;white-space:nowrap;
+ color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);border-radius:99px;padding:0 7px;line-height:17px}
+.mi{display:inline-block;margin-left:6px;font-size:10.5px;white-space:nowrap;border-radius:99px;padding:0 7px;line-height:17px;
+ background:var(--chip);color:var(--mute);cursor:help}
+.mi-high{background:color-mix(in srgb,#c98a1e 16%,transparent);color:#8a5a0c}
+.gmode{margin-left:6px;font-size:11px;color:var(--faint)}
+.inner.dpage{max-width:980px}
+.dctl{display:flex;flex-wrap:wrap;gap:9px 10px;align-items:center;margin:12px 0 8px}
+.seg{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:99px;overflow:hidden;background:var(--chip)}
+.seg .seglab{padding:0 8px 0 13px;font-size:11.5px;color:var(--faint)}
+.seg button{border:0;background:none;padding:5px 13px;font:inherit;font-size:12.3px;color:var(--mute);cursor:pointer}
+.seg button.on{background:var(--accent);color:#fff}
+.seg button:not(.on):hover{color:var(--ink)}
+.dbox{padding-bottom:14px}
+.dsec{border-bottom:1px solid var(--line);padding:11px 0}
+.dsec:last-of-type{border-bottom:0}
+.dsh{display:flex;align-items:baseline;gap:8px;cursor:pointer}
+.dsh:hover .gt{color:var(--accent)}
+.dsb{margin-top:6px}
+.dsb>.dlist,.dsb>.ditem{margin-left:18px}
+.mblock{margin:8px 0 0 18px;padding-left:12px;border-left:2px solid var(--line)}
+.mview .mblock{margin:0;padding:12px 0;border-left:0;border-bottom:1px solid var(--line)}
+.mview .mblock:last-child{border-bottom:0}
+.mh{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;cursor:pointer;padding:2px 0}
+.mh:hover .mt{color:var(--accent)}
+.mt{font-size:13.4px;font-weight:620;color:var(--ink)}
+.mm{font-size:11.8px;color:var(--faint)}
+.mitems .ditem{padding:6px 0;font-size:13.3px;border-bottom:0;cursor:pointer}
+.dbox .ditem{display:flex;align-items:flex-start;gap:10px;line-height:1.55;font-size:13.5px;cursor:pointer}
+.dbox .dsb>.ditem{padding:6px 0}
+.dbox .ditem:hover .dt{color:var(--accent)}
+/* settings: hot topics + spelling */
+.hrow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end;border:1px solid var(--line);border-radius:10px;
+ background:var(--warm);padding:9px 12px 10px;margin-bottom:8px}
+.hrow label{display:flex;flex-direction:column;gap:4px;font-size:11.8px;color:var(--mute)}
+.hrow label input:not([type=checkbox]){width:150px}
+.hrow label.hk{flex:1 1 220px}.hrow label.hk input{width:100%}
+.hrow select{font:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink)}
+.hrow .hb{flex-direction:row;align-items:center;padding-bottom:7px}
+.hrow .hn{font-size:11.5px;color:var(--faint);padding-bottom:8px;margin-left:auto}
+.hrow .x{padding-bottom:5px}
+
+/* action age labels and Keep fresh */
+.oitem.old{opacity:.62}
+.atag{flex:0 0 auto;font-size:10.5px;border-radius:99px;padding:0 7px;line-height:17px;white-space:nowrap;cursor:help;background:var(--chip);color:var(--mute)}
+.atag.fresh{background:color-mix(in srgb,#2f7a3f 14%,transparent);color:#2f7a3f}
+.atag.check{background:color-mix(in srgb,#c98a1e 16%,transparent);color:#8a5a0c}
+.atag.pin{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
+.kbtn{flex:0 0 auto;border:1px solid var(--line);background:none;color:var(--mute);border-radius:99px;padding:0 9px;font:inherit;font-size:11px;line-height:18px;cursor:pointer;opacity:0}
+.oitem:hover .kbtn,.kbtn:focus{opacity:1}
+.kbtn:hover{border-color:var(--accent);color:var(--accent)}
+.kbtn.undo{border-color:transparent;color:var(--faint)}
+@media(hover:none){.kbtn{opacity:.8}}
+.oitem{flex-wrap:wrap}
+.oitem .tx{flex:1 1 calc(100% - 26px)}
+.oitem .ometa{flex:1 1 100%;display:flex;align-items:center;gap:6px;padding-left:24px;margin-top:2px;flex-wrap:wrap}
+.ometa .src{margin-left:auto}
+
+/* removed from the quick list */
+.ditem.rm{opacity:.5}
+.ditem.rm .dt{text-decoration:line-through;text-decoration-color:var(--faint)}
+.put{flex:0 0 auto;border:1px solid var(--line);background:none;color:var(--mute);border-radius:99px;padding:0 9px;font:inherit;font-size:11px;line-height:18px;cursor:pointer;margin-top:2px;white-space:nowrap}
+.put:hover{border-color:var(--accent);color:var(--accent)}
+
+/* changes waiting to reach the library files */
+.sstrip{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:10px 0 0;padding:8px 12px;
+ border:1px solid color-mix(in srgb,#c98a1e 40%,var(--line));background:color-mix(in srgb,#c98a1e 9%,transparent);border-radius:10px;font-size:12.5px;color:var(--ink)}
+.inner.wide .sstrip{margin-right:270px}
+@media(max-width:1100px){.inner.wide .sstrip{margin-right:0}}
+
+/* markers for bookkeeping text moved out of the sentence */
+.ftag{display:inline-block;font-size:10.5px;border-radius:99px;padding:0 7px;line-height:17px;white-space:nowrap;cursor:help;background:var(--chip);color:var(--mute);margin-left:4px;vertical-align:1px}
+.ftag.inf{background:color-mix(in srgb,#c98a1e 22%,transparent);color:#8a5a0c;font-weight:600}
+.atag.un{background:transparent;border:1px dashed var(--line);color:var(--faint)}
+
+/* action tabs and the meeting each action came from */
+.atabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-top:6px}
+.atabs button{border:0;background:none;font:inherit;font-size:12.6px;color:var(--mute);padding:8px 11px 9px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.atabs button i{font-style:normal;color:var(--faint);font-size:11px;margin-left:3px}
+.atabs button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--accent)}
+.atabs button:hover{color:var(--ink)}
+.ometa .src{max-width:58%;overflow:hidden;text-overflow:ellipsis}
+.ometa .src{flex:1 1 100%;max-width:none;margin-left:0;order:9;white-space:normal;overflow:visible}
+
+a.sens-sw{text-decoration:none}

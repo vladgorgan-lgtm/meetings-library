@@ -19,6 +19,37 @@ logs, not from commits, so versions 1.0.0 and 1.1.0 have no tag of their own.
 - Engine-side wiring for Gemini notes beyond the sync runbook, and a cost estimate for it.
 - Contributor guide.
 
+## [1.5.0] - 2026-11-05
+
+### Changed
+- Saving page changes (the X on decisions, Keep fresh) now goes through the local server only.
+  The "connect library folder" button, the browser-held folder handle and the downloaded
+  pending-changes file are removed. That path wrote the change files but never rebuilt the data,
+  so changes did not show after a reload.
+- `engine/serve.py`: the access token is kept in `ops/server-token` (owner-only) so a restart
+  does not break open pages; a quiet "already running" exit; `/api/ping` reports the data build
+  and whether a routine token is set; one catch-up rebuild at start when `ops/` is newer than the data.
+- A page opened as a file jumps to the server (default `http://127.0.0.1:8765/`) and carries any
+  waiting changes with it. If the server is down, changes wait in the browser and are sent by
+  themselves when it returns. The page reloads itself when a sync adds meetings (Settings shows
+  a Refresh strip instead, so forms are not lost).
+- Settings, "Saving page changes": now only states the server status.
+
+### Added
+- `Install Auto-Start.command` and `Remove Auto-Start.command`: a macOS login item that starts the
+  server at login and restarts it if it stops. `Meeting Library.webloc` opens the page.
+- "Run now" button in the dashboard header, next to the hide-sensitive switch. With a routine
+  token in `ops/routine.json` it starts the sync directly; without one it opens the Claude
+  scheduled tasks page.
+
+### Fixed
+- Two example hints in `ui/settings.js` used real names; they now use invented ones.
+
+### Notes
+- `.gitignore` now excludes `/_to_delete/` (old local copies), approved by the owner.
+- Scheduled tasks that run through the desktop app have no API trigger, so the direct Run now
+  path only applies to routines that offer one.
+
 ## [1.4.0] - 2026-10-28
 
 ### Added
