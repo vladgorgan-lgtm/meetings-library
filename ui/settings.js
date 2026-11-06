@@ -91,8 +91,11 @@ function secConnectors(){
     </div>
     <div class="fact"><button class="btn" id="save-conn"${dis}>Save settings</button>
       <span class="hint inl">Saves to local files only. It does not start a run.</span></div>
-    <div class="fact runrow"><button class="btn pri" id="run-now"${dis}>Run fetch now</button>
-      <span class="hint inl">Asks Claude to run the sync now, with the settings above. Without a saved routine token it opens the Run now page instead.</span></div>
+    <div class="fact runrow">${RUNCFG
+        ? `<button class="btn pri" id="run-now"${dis}>Run fetch now</button>
+      <span class="hint inl">Asks Claude to run the sync now, with the settings above.</span>`
+        : `<a class="btn pri" href="${RUN_PAGE}" target="_blank" rel="noopener">Run fetch now</a>
+      <span class="hint inl">Opens your scheduled tasks in Claude: press Run on the library sync. Saved settings are used by that run.</span>`}</div>
     <div id="run-msg" class="hint"></div></div>`;
 }
 

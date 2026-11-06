@@ -44,11 +44,11 @@ const RUN_PAGE = 'https://claude.ai/code/routines';
 let RUNCFG = false;      /* true when ops/routine.json holds a routine id and token (the server says so) */
 function runButton(){
   if (!RUNCFG) return `<a class="sens-sw run-btn" href="${RUN_PAGE}" target="_blank" rel="noopener"
-      title="Opens your scheduled tasks in Claude: press Run on the library sync"><span class="sw-ic">&#9654;</span><span class="sw-tx">Run now</span></a>`;
+      title="Opens your scheduled tasks in Claude: press Run on the library sync"><span class="sw-ic">&#9654;</span><span class="sw-tx">Run fetch now</span></a>`;
   const ok = !!window.ML_SERVER && !RUNNING;
   return `<button class="sens-sw run-btn${RUNNING ? ' on' : ''}" data-runnow="1"${ok ? '' : ' disabled'}
       title="Ask Claude to fetch new meetings and update the library now">
-    <span class="sw-ic">&#9654;</span><span class="sw-tx">${RUNNING ? 'Running' : 'Run now'}</span></button>`;
+    <span class="sw-ic">&#9654;</span><span class="sw-tx">${RUNNING ? 'Running' : 'Run fetch now'}</span></button>`;
 }
 function sensSwitch(){
   return `<button class="sens-sw${showSens ? '' : ' on'}" data-sensall="1" role="switch" aria-checked="${showSens ? 'false' : 'true'}"
@@ -232,8 +232,7 @@ function renderDash(){
         <div class="hint">Ranked by recency and how many people a topic touches &mdash; 14-day half-life, so March noise fades out.</div>
       </section>
       <section class="dright">
-        ${decisionsBox()}
-        ${openActions()}
+        ${unifiedBox()}
       </section>
     </div>
 
@@ -436,10 +435,9 @@ function hotCount(h){   /* used by Settings: how many decisions a rule catches r
   return DASH.decisions.filter(d => rx.test(d.text)).length;
 }
 
-function tagFor(x){
+function tagFor(x){   /* "suggested": decisions the insights layer added; there is no key label, weight only orders */
   return x.source === 'claude'
-    ? ` <span class="dtag${x.importance >= 3 ? ' key' : ''}" title="${esc(x.evidence || 'Added by the insights layer')}">${
-      x.importance >= 3 ? 'key' : 'suggested'}</span>` : '';
+    ? ` <span class="dtag" title="${esc(x.evidence || 'Added by the insights layer')}">suggested</span>` : '';
 }
 function srcLine(sources){
   return '&mdash; ' + sources.map(s => `${esc(s.title)}, ${esc(s.day)}`).join(' &middot; ');
@@ -470,7 +468,7 @@ function allItems(searchOn, withRemoved){
     if (d.sensitive && !showSens){ nSens++; return; }
     const e = byId[d.id] || {}, hots = hotsOf(d.text);
     const it = {keys: [decKey(d)], text: d.text, id: d.id, title: d.title, day: d.day, date: d.date,
-      source: d.source, importance: d.importance || 0, sensitive: d.sensitive, evidence: d.evidence || '', flags: d.flags || {},
+      source: d.source, importance: d.importance || 0, kscore: d.kscore || 0, kwhy: d.kwhy || [], sensitive: d.sensitive, evidence: d.evidence || '', flags: d.flags || {},
       sources: [{id: d.id, title: d.title, day: d.day}], hots, bold: hots.some(h => h.bold),
       m: mimp(d.id), tags: e.tags || [], removed: gone};
     const hay = (d.text + ' ' + d.title + ' ' + d.day + ' ' + hots.map(h => h.name).join(' ')).toLowerCase();
@@ -478,17 +476,22 @@ function allItems(searchOn, withRemoved){
   });
   return {items: out, nSens, nHid};
 }
-const rank = (a, b) => (b.importance >= 3) - (a.importance >= 3) || b.date.localeCompare(a.date);
+/* ordering: weight (0-100, build time) times how fresh it is. Decisions fade softly with age, they never
+   expire; actions follow their age label (Fresh, Check in, Probably done); hot topics add a bonus. */
+const decAge = it => Math.max(0, (Date.now() - new Date(it.date).getTime()) / 864e5) || 0;
+const decPri = it => (it.kscore || 0) * (decAge(it) <= 7 ? 1 : decAge(it) <= 21 ? 0.85 : 0.6) + (it.hots && it.hots.length ? 20 : 0);
+const actPri = a => (a.kscore || 0) * ({fresh: 1, check: 0.7, old: 0.4}[a.tier] || 1);
+const rank = (a, b) => decPri(b) - decPri(a) || b.date.localeCompare(a.date);
 
 /* ---- the dashboard box: a handful, best first ---- */
 function topScore(it){
   const age = Math.max(0, (Date.now() - new Date(it.date).getTime()) / 864e5) || 0;
-  return (it.hots.length ? 40 : 0) + (it.importance >= 3 ? 20 : 0) + it.m.score * 0.3 + Math.max(0, 30 - age * 2);
+  return (it.hots.length ? 40 : 0) + 0 + it.m.score * 0.3 + Math.max(0, 30 - age * 2);
 }
 function rowCompact(it){
   return `<div class="ditem dc${it.bold ? ' hot' : ''}" data-id="${esc(it.id)}">
     <span class="tx"><span class="dt">${it.sensitive ? LOCK + ' ' : ''}${inl(it.text)}</span>${tagFor(it)}${flagTags(it.flags)}
-      <span class="dm">${esc(it.title)} &middot; ${esc(it.day)}${hotChips(it.hots)}${mBadge(it.m)}</span></span>
+      <span class="dm">${esc(it.title)} &middot; ${esc(it.day)}${hotChips(it.hots)}${mBadge(it.m)}</span>${linkedActs(it)}</span>
     ${delBtn(it.keys, 'Remove from the quick list', it.removed)}</div>`;
 }
 function decisionsBox(){
@@ -512,8 +515,8 @@ function decisionsBox(){
 function rowFull(it, o){
   o = o || {};
   return `<div class="ditem${it.bold ? ' hot' : ''}${it.removed ? ' rm' : ''}" data-id="${esc(it.id)}">
-    <span class="tx">${it.sensitive ? LOCK + ' ' : ''}<span class="dt">${inl(it.text)}</span>${tagFor(it)}${flagTags(it.flags)}${
-      o.noHot ? '' : hotChips(it.hots)}${o.noSrc ? '' : ` <span class="src">${srcLine(it.sources)}</span>`}</span>
+    <span class="tx">${it.sensitive ? LOCK + ' ' : ''}<span class="dt" title="${esc('Weight ' + (it.kscore || 0) + ' of 100: ' + (it.kwhy || []).join(', '))}">${inl(it.text)}</span>${tagFor(it)}${flagTags(it.flags)}${
+      o.noHot ? '' : hotChips(it.hots)}${o.noSrc ? '' : ` <span class="src">${srcLine(it.sources)}</span>`}${linkedActs(it)}</span>
     ${delBtn(it.keys, 'Remove from the quick list', it.removed)}</div>`;
 }
 function byMeeting(items){
@@ -595,7 +598,7 @@ function viewTheme(){
     const g = r.g, open = terms.length || openGroups.has(r.gi), meetings = new Set(r.items.flatMap(i => i.sources.map(s => s.id))).size;
     return `<div class="dgrp${open ? ' open' : ''}">
       <div class="dgh" data-gtoggle="${r.gi}"><span class="chev">${open ? '&#9662;' : '&#9656;'}</span>
-        <span class="gt">${r.items.every(i => i.sensitive) ? LOCK + ' ' : ''}${esc(g.title)}</span>${g.key ? ' <span class="dtag key">key</span>' : ''}${
+        <span class="gt">${r.items.every(i => i.sensitive) ? LOCK + ' ' : ''}${esc(g.title)}</span>${
           g.note ? ' <span class="gwarn" title="' + esc(g.note) + '">&#9888;</span>' : ''}
         <span class="gcount">${r.items.length} decision${r.items.length > 1 ? 's' : ''}${meetings > 1 ? ' &middot; ' + meetings + ' meetings' : ''}</span>
         ${delBtn(r.items.flatMap(i => i.keys), 'Remove this whole group from the quick list', r.items.every(i => i.removed))}</div>
@@ -648,19 +651,32 @@ function renderDecisions(pane){
 }
 
 /* ---- open actions: one boxed section, filterable, 10 at a time ---- */
-let showOld = false;
+let showOld = false, onlyDecide = false, showFolded = false;
+/* open actions that carry out a decision are shown under that decision (step 2); never dropped: the note
+   under the list says how many, and a button shows them in the list again */
+const folded = (a, hid) => !showFolded && a.follow_of && !hid.has(a.follow_of);
+function linkedActs(it){
+  const hid = hiddenSet();
+  const l = DASH.open.map(effAct).filter(a => a.follow_of && it.keys.includes(a.follow_of) && visible(a) && a.tier !== 'old');
+  if (!l.length) return '';
+  return `<div class="dlink">${l.map(a => `<div class="dl"><span class="bx">&#9744;</span> ${inl(a.what)}${
+    a.owner ? ` <span class="oown">${esc(a.owner.split(' ')[0])}</span>` : ''} <span class="atag ${a.tier}">${TLAB[a.tier]}</span></div>`).join('')}</div>`;
+}
+const KLAB = {decide: ['to decide', 'This action is really an open question that still needs a decision.'],
+              follow: ['follow-up', 'This action carries out, or repeats, a decision from the same meeting.']};
 const TLAB = {fresh: 'Fresh', check: 'Check in', old: 'Probably done'};
-function actRow(a){
+function actRow(a, noSrc){
+  noSrc = noSrc === true;
   const canKeep = !a.pinned && (a.tier !== 'fresh' || a.keeps > 0);
   return `<div class="oitem ${a.tier}" data-id="${esc(a.id)}">
-    <span class="bx">&#9744;</span><span class="tx">${a.sensitive ? LOCK + ' ' : ''}${inl(a.what)}</span>
-    <span class="ometa">${!a.owner ? '<span class="atag un" title="No owner was named in the meeting">unassigned</span>' : ''}${flagTags(a.flags)}${!actOwner && a.owner ? `<span class="oown">${esc(a.owner.split(' ')[0])}</span>` : ''}
+    <span class="bx">&#9744;</span><span class="tx" title="${esc('Weight ' + (a.kscore || 0) + ' of 100: ' + (a.kwhy || []).join(', '))}">${a.sensitive ? LOCK + ' ' : ''}${inl(a.what)}</span>
+    <span class="ometa">${KLAB[a.kind] ? `<span class="atag k-${a.kind}" title="${esc(KLAB[a.kind][1] + (a.kind_why ? ' (' + a.kind_why + ')' : ''))}">${KLAB[a.kind][0]}</span>` : ''}${!a.owner ? '<span class="atag un" title="No owner was named in the meeting">unassigned</span>' : ''}${flagTags(a.flags)}${!actOwner && a.owner ? `<span class="oown">${esc(a.owner.split(' ')[0])}</span>` : ''}
     <span class="atag ${a.tier}" title="Fresh: up to 7 days. Check in: 8 to 21 days. Probably done: older.">${TLAB[a.tier]}</span>
     ${a.pinned ? '<span class="atag pin" title="Kept fresh twice: stays fresh">pinned</span>'
       : a.keeps ? `<span class="atag kept">kept ${a.keeps}x</span>` : ''}
     ${canKeep ? `<button class="kbtn" data-keep="${esc(a.key)}" title="Restart the clock. Press twice to keep it fresh for good.">Keep fresh</button>` : ''}
     ${a.keeps ? `<button class="kbtn undo" data-keep="${esc(a.key)}" data-reset="1" title="Forget the keep presses">reset</button>` : ''}
-    <span class="src" title="${esc(a.title)}">${esc(a.title)} &middot; ${esc(a.day)}</span></span></div>`;
+    ${noSrc ? '' : `<span class="src" title="${esc(a.title)}">${esc(a.title)} &middot; ${esc(a.day)}</span>`}</span></div>`;
 }
 let actTab = 'all'; try { actTab = localStorage.getItem('meetinglib.actTab') || 'all'; } catch(e){}
 const ME = L.owner || '';
@@ -668,7 +684,10 @@ const TABS = [['all', 'All'], ['mine', 'Mine'], ['others', 'Waiting on others'],
 const tabOf = a => !a.owner ? 'none' : a.owner === ME ? 'mine' : 'others';
 function openActions(){
   const rk = {fresh: 0, check: 1, old: 2};
-  const every = DASH.open.map(effAct).sort((x, y) => rk[x.tier] - rk[y.tier]).filter(visible);
+  const hidD = hiddenSet();
+  const all0 = DASH.open.map(effAct).sort((x, y) => rk[x.tier] - rk[y.tier]).filter(visible);
+  const nFold = all0.filter(a => a.tier !== 'old' && folded(a, hidD)).length;
+  const every = all0.filter(a => !folded(a, hidD));
   if (!every.length)
     return `<h2 class="sec">Open actions</h2><div class="hint">Nothing outstanding.</div>`;
   const tabs = ME ? TABS : [['all', 'All']];
@@ -681,7 +700,10 @@ function openActions(){
   const chips = actTab === 'all' || actTab === 'others';
   const owners = !chips ? [] : Object.entries(cnt).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, 5).map(([owner, n]) => ({owner, items: {length: n}}));
-  const byO = l => chips && actOwner ? l.filter(a => (a.owner || 'Unassigned') === actOwner) : l;
+  const nDec = live.filter(a => a.kind === 'decide').length;
+  if (!nDec) onlyDecide = false;
+  const byK = l => onlyDecide ? l.filter(a => a.kind === 'decide') : l;
+  const byO = l => byK(chips && actOwner ? l.filter(a => (a.owner || 'Unassigned') === actOwner) : l);
   const list = byO(live), oldList = byO(old);
   const shown = allActs ? list : list.slice(0, 10);
   const title = chips && actOwner ? actOwner : (tabs.find(t => t[0] === actTab) || [0, 'All'])[1];
@@ -690,16 +712,83 @@ function openActions(){
       <div class="atabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" class="${actTab === k ? 'on' : ''}" data-atab="${k}">${l} <i>${nLive(k)}</i></button>`).join('')}</div>
       <div class="bhead"><span class="bt">${esc(title)}</span>
         <span class="bn">${list.length} open</span>
-        <div class="bfil">${owners.map(o => `<button class="of${
+        <div class="bfil">${nDec ? `<button class="of${onlyDecide ? ' on' : ''}" data-akind="decide" title="Only actions that are really open decisions">to decide ${nDec}</button>` : ''}${owners.map(o => `<button class="of${
           actOwner === o.owner ? ' on' : ''}" data-owner="${esc(o.owner)}"
           >${esc(o.owner.split(' ')[0])} ${o.items.length}</button>`).join('')}</div>
       </div>
       <div class="olist">${shown.map(actRow).join('') || '<div class="none">Nothing here.</div>'}</div>
+      ${nFold ? `<div class="hint" style="margin:6px 0 0">${nFold} follow-up action${nFold > 1 ? 's are' : ' is'} shown under ${nFold > 1 ? 'their decisions' : 'its decision'} on the <a href="#decisions">Decisions page</a>. <button class="more" data-folded="1">show here too</button></div>`
+        : showFolded ? `<div class="hint" style="margin:6px 0 0"><button class="more" data-folded="1">show follow-ups under their decisions again</button></div>` : ''}
       ${list.length > 10 ? `<button class="more" data-acts="1">${allActs
         ? '&minus; show fewer' : '+ view the other ' + (list.length - 10)}</button>` : ''}
       ${oldList.length ? `<button class="more" data-old="1">${showOld ? '&minus; hide' : '+ show'} probably done (${oldList.length})</button>
         ${showOld ? `<div class="olist">${oldList.map(actRow).join('')}</div>` : ''}` : ''}
     </div>`;
+}
+
+/* ---- decisions and actions together: one section, one block per meeting ----
+   Inside a block: what was decided, what still needs deciding (actions that are really open questions),
+   then the other actions. Follow-up actions sit right under the decision they carry out (All tab).
+   The tabs filter the actions; the full Decisions page stays behind "View all". */
+const UTABS = [['all', 'All'], ['decide', 'To decide'], ['mine', 'Mine'], ['others', 'Waiting on others'], ['none', 'Unassigned']];
+function unifiedBox(){
+  const hid = hiddenSet();
+  const acts = DASH.open.map(effAct).filter(visible);
+  const tabs = UTABS.filter(t => ME || !['mine', 'others'].includes(t[0]));
+  if (!tabs.some(t => t[0] === actTab)) actTab = 'all';
+  const inTab = (a, k) => k === 'all' || (k === 'decide' ? a.kind === 'decide' : tabOf(a) === k);
+  const live = acts.filter(a => a.tier !== 'old'), old = acts.filter(a => a.tier === 'old');
+  const chips = ['all', 'others', 'decide'].includes(actTab);
+  const ownerOk = a => !(chips && actOwner) || (a.owner || 'Unassigned') === actOwner;
+  const actionsOnly = actTab !== 'all' || !!actOwner;
+  const {items: decs, nSens} = allItems(false);
+  const nest = a => !actionsOnly && a.follow_of && !hid.has(a.follow_of) && a.tier !== 'old';
+
+  const blocks = new Map();
+  const blk = id => { if (!blocks.has(id)) blocks.set(id, {id, decs: [], dec: [], act: [], date: ''}); return blocks.get(id); };
+  if (!actionsOnly) decs.forEach(d => { const b = blk(d.id); b.decs.push(d); b.date = d.date; });
+  const pool = (showOld ? live.concat(old) : live).filter(a => inTab(a, actTab) && ownerOk(a));
+  pool.forEach(a => { if (nest(a)) return; const b = blk(a.id); (a.kind === 'decide' ? b.dec : b.act).push(a); b.date = b.date || a.date; });
+
+  const list = [...blocks.values()].map(b => {
+    const m = mimp(b.id);   /* a meeting block ranks by its heaviest, freshest item */
+    const score = Math.max(0, ...b.decs.map(decPri), ...b.dec.map(actPri), ...b.act.map(actPri));
+    return {...b, m, score};
+  }).sort((x, y) => y.score - x.score || y.date.localeCompare(x.date));
+  const shown = allActs ? list : list.slice(0, 5);
+
+  const nTab = k => k === 'all' ? decs.length + live.length : live.filter(a => inTab(a, k)).length;
+  const cnt = {};
+  live.filter(a => inTab(a, actTab)).forEach(a => { const k = a.owner || 'Unassigned'; cnt[k] = (cnt[k] || 0) + 1; });
+  const owners = !chips ? [] : Object.entries(cnt).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 5);
+  const nOld = old.filter(a => inTab(a, actTab) && ownerOk(a)).length;
+  const sub = (label, html) => html ? `<div class="usub">${label}</div>${html}` : '';
+  const body = b => {
+    const head = (() => { const e = byId[b.id] || {};
+      return `<div class="mh" data-id="${esc(b.id)}"><span class="mt">${e.sensitive ? LOCK + ' ' : ''}${esc(e.title || '')}</span>
+        <span class="mm">${esc(e.day || '')}${e.type ? ' &middot; ' + esc(e.type) : ''}</span>${mBadge(b.m)}</div>`; })();
+    const d = b.decs.sort(rank).map(it => rowFull(it, {noSrc: true})).join('');
+    const byP = (x, y) => actPri(y) - actPri(x);
+    const q = b.dec.slice().sort(byP).map(a => actRow(a, true)).join(''), r = b.act.slice().sort(byP).map(a => actRow(a, true)).join('');
+    return `<div class="ublock">${head}${actionsOnly ? `<div class="olist">${q}${r}</div>`
+      : sub('Decided', d && `<div class="dlist">${d}</div>`) + sub('To decide', q && `<div class="olist">${q}</div>`)
+        + sub('Actions', r && `<div class="olist">${r}</div>`)}</div>`;
+  };
+  const title = (tabs.find(t => t[0] === actTab) || [0, 'All'])[1];
+  return `<h2 class="sec">Decisions &amp; actions</h2>
+    <div class="box">
+      <div class="atabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" class="${actTab === k ? 'on' : ''}" data-atab="${k}"${
+        k === 'all' ? ' title="Decisions and open actions together"' : ''}>${l} <i>${nTab(k)}</i></button>`).join('')}</div>
+      <div class="bhead"><span class="bt">${esc(chips && actOwner ? actOwner : title)}</span>
+        <span class="bn">${actionsOnly ? pool.length + ' open' : decs.length + ' decisions, ' + pool.length + ' open actions'}</span>
+        <div class="bfil">${owners.map(([o, n]) => `<button class="of${actOwner === o ? ' on' : ''}" data-owner="${esc(o)}">${esc(o.split(' ')[0])} ${n}</button>`).join('')}</div>
+        <a class="vall" href="#decisions">All decisions &rarr;</a></div>
+      ${shown.map(body).join('') || '<div class="none">Nothing here.</div>'}
+      ${list.length > 5 ? `<button class="more" data-acts="1">${allActs ? '&minus; show fewer' : '+ view the other ' + (list.length - 5) + ' meetings'}</button>` : ''}
+      ${nOld ? `<button class="more" data-old="1">${showOld ? '&minus; hide' : '+ show'} probably done (${nOld})</button>` : ''}
+      ${nSens ? `<button class="more" data-sensall="1">show sensitive (${nSens} hidden)</button>` : ''}
+    </div>
+    <div class="hint">One block per meeting. Heavier and fresher items come first: money, people, client and policy weigh most; hot topics add a bonus; older ones fade.</div>`;
 }
 
 /* ---- running cost, computed at build time from ops/sync-log.jsonl ---- */
@@ -865,6 +954,10 @@ document.addEventListener('click', e => {
   if (sc){ const k = sc.dataset.sec; shut.has(k) ? shut.delete(k) : shut.add(k); refreshDec(); return; }
   const ag = e.target.closest('[data-acts]');
   if (ag){ allActs = !allActs; render(); return; }
+  const fd = e.target.closest('[data-folded]');
+  if (fd){ showFolded = !showFolded; allActs = false; render(); return; }
+  const kd = e.target.closest("[data-akind]");
+  if (kd){ onlyDecide = !onlyDecide; allActs = false; render(); return; }
   const ow = e.target.closest('[data-owner]');
   if (ow){ actOwner = actOwner === ow.dataset.owner ? null : ow.dataset.owner;
     allActs = false; render(); return; }

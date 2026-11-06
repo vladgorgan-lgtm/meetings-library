@@ -556,3 +556,17 @@ details.nice>summary{cursor:pointer;list-style:none}details.nice>summary::-webki
 .ometa .src{flex:1 1 100%;max-width:none;margin-left:0;order:9;white-space:normal;overflow:visible}
 
 a.sens-sw{text-decoration:none}
+a.btn{text-decoration:none;display:inline-block}
+
+.atag.k-decide{background:color-mix(in srgb,#b4462d 13%,transparent);color:#9a3a24;cursor:help}
+.atag.k-follow{background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);cursor:help}
+
+.dlink{display:block;margin:5px 0 0 2px;padding-left:10px;border-left:2px solid var(--line)}
+.dlink .dl{font-size:12.6px;line-height:1.5;color:var(--mute);margin:2px 0}
+.dlink .dl .bx{color:var(--accent)}
+.dlink .oown{color:var(--faint);font-size:11.5px}
+
+.ublock{padding:10px 0 6px;border-top:1px solid var(--line)}
+.ublock:first-of-type{border-top:0}
+.usub{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);margin:9px 0 1px}
+.ublock .mh{margin-bottom:2px}

@@ -20,3 +20,10 @@ This folder is the Meetings Library. It is also published to GitHub
 
 ## Style
 - No em dashes in anything written for the owner; use commas, colons or periods.
+
+## Backlog
+- "put in the backlog": add the item to `docs/BACKLOG.md` under the right epic (create an epic
+  if none fits) with status `idea`, today's date and a one-line note. Confirm in one line.
+- "show the backlog": summarise `docs/BACKLOG.md` by epic, `next` items first.
+- When an item ships, move it to the Done table with the date and version.
+- Items never contain real names or meeting content: the file is published.

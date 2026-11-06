@@ -426,6 +426,7 @@ def merged_decisions(decisions, entries):
     except Exception as exc:
         print(f"insights layer skipped ({exc})")
     decisions = sorted(decisions, key=lambda d: d["date"], reverse=True)   # no cap: every decision reaches the page
+    score_keys(decisions, entries)
     _GROUPS[:] = []
     try:
         _GROUPS.extend(insights.resolve_groups(decisions))
@@ -472,6 +473,104 @@ def meeting_importance(entries, decisions):
         out[e["id"]] = {"score": score, "level": "high" if score >= 55 else "medium" if score >= 35 else "low",
                         "why": [f"{w} (+{p})" for w, p in parts if p]}
     return out
+
+
+# ---- weight: a 0 to 100 score for every decision and every open action, no model calls ----
+# Factors: money, people, client commitment, reach/policy, plus the weight of the meeting it came from.
+# The page orders by this weight and by age; it shows no label. The insights layer's own 1-3 rating adds a
+# small bonus. Weights can be overridden in rules/key.json (not part of the insights rules hash on purpose:
+# changing them must not re-run the model).
+KEY_DEFAULT = {"weights": {"money": 25, "people": 25, "client": 25, "reach": 20, "meeting": 15},
+               "model_bonus": {"3": 20, "2": 5}}
+KEY_RX = {
+    "money": re.compile(r"\b(budget\w*|costs?|pric\w+|rates?|salar\w+|bonus\w*|invoic\w+|licen[cs]\w+|purchas\w+|"
+                        r"contracts?|margins?|revenue|funding|expens\w+|spend\w*|payroll|hourly|eur|usd)\b|[€$]", re.I),
+    "people": re.compile(r"\b(hir\w+|recruit\w+|promot\w+|separation\w*|terminat\w+|dismiss\w*|layoffs?|allocat\w+|"
+                         r"staffing|staffed|onboard\w*|reassign\w*|bench|levell?ing|grad(?:e|ing)|performance review\w*|"
+                         r"succession|ownership|resign\w*|retention|backfill|headcount)\b", re.I),
+    "client": re.compile(r"\b(clients?|customers?|sla|escalat\w+|commitments?|committed|deadlines?|deliver(?:y|ables?)|"
+                         r"proposals?|offers?|terms|sow|renewal|roadmap)\b", re.I),
+    "reach": re.compile(r"\b(polic(?:y|ies)|process(?:es)?|rules?|guidelines?|standards?|framework|going forward|"
+                        r"from now on|all (?:teams?|employees|managers|pms|members)|everyone|company[- ]wide|"
+                        r"template|always|never|methodolog\w+)\b", re.I),
+}
+
+
+def key_settings():
+    cfg = json.loads(json.dumps(KEY_DEFAULT))
+    try:
+        with open(os.path.join(ROOT, "rules", "key.json"), encoding="utf-8") as fh:
+            o = json.load(fh)
+        for k, v in o.items():
+            if isinstance(v, dict) and isinstance(cfg.get(k), dict):
+                cfg[k].update(v)
+            elif not k.startswith("_"):
+                cfg[k] = v
+    except (OSError, ValueError):
+        pass
+    return cfg
+
+
+def weigh(text, e, importance=0, cfg=None):
+    """(score 0-100, why) for one decision or action text from its meeting entry e."""
+    cfg = cfg or key_settings()
+    w = cfg["weights"]
+    top = sum(w.values()) or 1
+    hit = [f for f, rx in KEY_RX.items() if rx.search(text or "")]
+    pts = [(f, w.get(f, 0)) for f in hit]
+    mw = min(100, TYPE_BASE.get(e.get("type"), 5) + min(len(e.get("people", [])), 10) * 4
+             + (10 if e.get("account") else 0))
+    pts.append(("meeting weight", round(w.get("meeting", 0) * mw / 100)))
+    bonus = int(cfg["model_bonus"].get(str(int(importance or 0)), 0))
+    if bonus:
+        pts.append(("rated by the insights layer", bonus))
+    return min(100, round(sum(p for _, p in pts) * 100 / top)), [f"{f} (+{p})" for f, p in pts if p]
+
+
+def score_keys(decisions, entries):
+    """Adds kscore (0-100) and kwhy to every decision."""
+    cfg = key_settings()
+    by_id = {e["id"]: e for e in entries}
+    for d in decisions:
+        d["kscore"], d["kwhy"] = weigh(d["text"], by_id.get(d["id"], {}), d.get("importance", 0), cfg)
+
+
+# ---- action kind (step 1 of the decisions and actions rework) ----
+# Each open action gets a label, nothing is moved or hidden:
+#   "decide"  the action is really an open question ("investigate whether...", "align on...")
+#   "follow"  the action restates or carries out a decision from the same meeting
+#   None      a plain task
+# Plain rules, no model calls. Tune the two lists below; the page only shows the label.
+DECIDE_RX = re.compile(
+    r"(?<!check )(?<!see )\b(whether|decide (?:on|if|whether)|decision (?:on|about)|agree on|"
+    r"align (?:with .{1,40} )?on|go/no-go|makes? sense|which (?:way|option|approach)|think through|"
+    r"figure out|confirm (?:if|acceptance|the decision|approval)|"
+    r"(?:get|seek|ask for|obtain) (?:approval|sign[- ]off)|"
+    r"explore|investigate|determine)\b", re.I)
+_TOK = re.compile(r"[a-z]{4,}")
+FOLLOW_MIN = 0.35   # word overlap with a decision from the same meeting
+
+
+def _toks(t):
+    return set(_TOK.findall((t or "").lower()))
+
+
+def action_kind(what, same_meeting_decisions):
+    """(kind, why) for one open action. why is the hover text on the page."""
+    m = DECIDE_RX.search(what)
+    if m:
+        return "decide", 'wording: "' + m.group(0).lower() + '"', ""
+    a = _toks(what)
+    best, bt, bk = 0.0, "", ""
+    for dtext, dkey in same_meeting_decisions:
+        b = _toks(dtext)
+        j = len(a & b) / max(1, len(a | b))
+        if j > best:
+            best, bt, bk = j, dtext, dkey
+    if best >= FOLLOW_MIN:
+        return "follow", "similar to a decision from the same meeting: " + bt[:90], bk
+    return None, "", ""
+
 
 
 def build_dashboard(entries):
@@ -529,10 +628,18 @@ def build_dashboard(entries):
     # age label: fresh up to 7 days, check in up to 21, probably done after that.
     # "Keep fresh" restarts the clock; kept twice, an action stays fresh.
     rank = {"fresh": 0, "check": 1, "old": 2}
+    by_eid = {e["id"]: e for e in entries}
+    dec_by_id = {}
+    for d in decisions_all:
+        dec_by_id.setdefault(d["id"], []).append((d["text"], d.get("key") or (d["id"] + "|" + d["text"])))
     today_ = date.today()
     for a in open_acts:
         a["key"] = a["id"] + "|" + a["what"]
         a["what"], a["flags"] = split_notes(a["what"])
+        a["kscore"], a["kwhy"] = weigh(a["what"], by_eid.get(a["id"], {}))
+        a["kind"], a["kind_why"], fk = action_kind(a["what"], dec_by_id.get(a["id"], []))
+        if fk:
+            a["follow_of"] = fk
         k = KEEPS.get(a["key"]) or {}
         age = a["age"]
         if k.get("last"):
